@@ -1,4 +1,19 @@
+import { Platform } from 'react-native';
+
 // Academic Trust Design System Tokens (from stitch_design_file_implementation/academic_trust/DESIGN.md)
+
+export const FontFamilies = {
+  sans: Platform.select({
+    ios: 'System',
+    android: 'sans-serif',
+    default: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+  }),
+  sansMedium: Platform.select({
+    ios: 'System',
+    android: 'sans-serif-medium',
+    default: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+  }),
+};
 
 export const Colors = {
   // Brand Primaries
@@ -67,6 +82,13 @@ export const Spacing = {
   spaceLg: 20,
   spaceXl: 24,
   space2xl: 32,
+  // Shorthand aliases for universal component compatibility
+  xs: 8,
+  sm: 12,
+  md: 16,
+  lg: 20,
+  xl: 24,
+  xxl: 32,
   margin: 20,
   marginMobile: 16,
   gutter: 16,
@@ -80,10 +102,43 @@ export const Radii = {
   lg: 12,
   xl: 16,
   xxl: 20,
+  pill: 9999,
   full: 9999,
 };
 
 export const Typography = {
+  // Compatibility & semantic aliases
+  bodyMedium: {
+    fontSize: 14,
+    fontWeight: '500',
+    lineHeight: 20,
+    color: Colors.textPrimary,
+  },
+  bodySmall: {
+    fontSize: 12,
+    fontWeight: '400',
+    lineHeight: 16,
+    color: Colors.textSecondary,
+  },
+  bodySm: {
+    fontSize: 12,
+    fontWeight: '400',
+    lineHeight: 16,
+    color: Colors.textSecondary,
+  },
+  caption: {
+    fontSize: 11,
+    fontWeight: '400',
+    lineHeight: 14,
+    color: Colors.textSecondary,
+  },
+  titleLarge: {
+    fontFamily: FontFamilies.sansMedium,
+    fontSize: 20,
+    fontWeight: '700',
+    lineHeight: 28,
+    color: Colors.textPrimary,
+  },
   // Source Serif 4 emulation / formal serif style
   displayHero: {
     fontFamily: 'serif',
@@ -100,32 +155,87 @@ export const Typography = {
     color: Colors.textPrimary,
   },
   headlineLg: {
-    fontFamily: 'serif',
+    fontFamily: FontFamilies.sansMedium,
     fontSize: 24,
     fontWeight: '700',
     lineHeight: 32,
+    letterSpacing: -0.4,
     color: Colors.textPrimary,
   },
   headlineMd: {
-    fontFamily: 'serif',
+    fontFamily: FontFamilies.sansMedium,
     fontSize: 20,
-    fontWeight: '600',
+    fontWeight: '700',
     lineHeight: 28,
+    letterSpacing: -0.3,
     color: Colors.textPrimary,
   },
   headlineSm: {
-    fontFamily: 'serif',
+    fontFamily: FontFamilies.sansMedium,
     fontSize: 18,
     fontWeight: '600',
     lineHeight: 24,
+    letterSpacing: -0.2,
     color: Colors.textPrimary,
   },
   titleFormal: {
-    fontFamily: 'serif',
-    fontSize: 16,
-    fontWeight: '600',
-    lineHeight: 22,
+    fontFamily: FontFamilies.sansMedium,
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 20,
+    letterSpacing: -0.25,
     color: Colors.textPrimary,
+  },
+
+  // Human-crafted Academic Overview Metric Card typography
+  metricValue: {
+    fontFamily: FontFamilies.sans,
+    fontSize: 26,
+    fontWeight: '800',
+    letterSpacing: -0.6,
+    lineHeight: 30,
+    color: '#0F172A',
+  },
+  metricLabel: {
+    fontFamily: FontFamilies.sansMedium,
+    fontSize: 12.5,
+    fontWeight: '600',
+    letterSpacing: -0.15,
+    lineHeight: 16.5,
+    color: '#334155',
+  },
+
+  // Human-crafted Credential Vault card typography
+  credentialTitle: {
+    fontFamily: FontFamilies.sansMedium,
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: -0.25,
+    lineHeight: 20,
+    color: '#0F172A',
+  },
+  credentialMeta: {
+    fontFamily: FontFamilies.sans,
+    fontSize: 11,
+    fontWeight: '500',
+    letterSpacing: 0.1,
+    lineHeight: 15,
+    color: '#64748B',
+  },
+  credentialBadge: {
+    fontFamily: FontFamilies.sansMedium,
+    fontSize: 10.5,
+    fontWeight: '700',
+    letterSpacing: 0.25,
+    lineHeight: 14,
+  },
+  credentialVerification: {
+    fontFamily: FontFamilies.sansMedium,
+    fontSize: 11.5,
+    fontWeight: '500',
+    letterSpacing: -0.1,
+    lineHeight: 16,
+    color: Colors.verifiedGreen,
   },
 
   // Inter emulation / sans-serif functional style

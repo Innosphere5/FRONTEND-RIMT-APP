@@ -11,11 +11,14 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Colors, Spacing, Typography, Radii } from '../theme/tokens';
+import { Colors, Spacing, Typography, Radii, FontFamilies } from '../theme/tokens';
 import Header from '../components/Header';
+import ZoomCard from '../components/ZoomCard';
+import ViewToggle from '../components/ViewToggle';
 
 export default function ProjectsScreen({ onNavigate }) {
   const [selectedFilter, setSelectedFilter] = useState('all');
+  const [viewMode, setViewMode] = useState('stack'); // 'stack' | 'grid'
   const [modalVisible, setModalVisible] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newCategory, setNewCategory] = useState('academic');
@@ -30,11 +33,14 @@ export default function ProjectsScreen({ onNavigate }) {
       statusType: 'completed',
       title: 'Academic Trust — Verification Protocol',
       description:
-        'Decentralized document hashing and cryptographic verification engine for institutional credential exports…',
-      tags: ['React Native', 'Node.js', 'SHA-256', 'Expo', '+2 more'],
+        'Decentralized document hashing and cryptographic verification engine for institutional credential exports.',
+      tags: ['React Native', 'Node.js', 'SHA-256', 'Expo'],
       commitInfo: 'Last commit 3 days ago · #a7b931e',
       gitStatus: 'Git Synced',
       isPublic: false,
+      icon: 'verified',
+      iconBg: '#EEF2FF',
+      iconColor: '#4F46E5',
     },
     {
       id: 'PRJ-7210',
@@ -44,11 +50,14 @@ export default function ProjectsScreen({ onNavigate }) {
       statusType: 'inProgress',
       title: 'Smart Campus Attendance Scanner',
       description:
-        'BLE and geofenced automated beacon attendance recording for lecture halls…',
+        'BLE and geofenced automated beacon attendance recording for lecture halls.',
       tags: ['Python', 'FastAPI', 'Bluetooth LE', 'PostgreSQL'],
       commitInfo: 'Last commit yesterday · #c92f41d',
       gitStatus: 'Git Synced',
       isPublic: true,
+      icon: 'sensors',
+      iconBg: '#ECFDF5',
+      iconColor: '#059669',
     },
     {
       id: 'PRJ-3109',
@@ -58,11 +67,31 @@ export default function ProjectsScreen({ onNavigate }) {
       statusType: 'archived',
       title: 'Distributed Student Ledger',
       description:
-        'Course grade archival system with digital registrar signatures and batch verification…',
+        'Course grade archival system with digital registrar signatures and batch verification.',
       tags: ['Go', 'gRPC', 'Docker'],
       commitInfo: 'Snapshot locked · #e401d22',
       gitStatus: 'Read Only',
       isPublic: false,
+      icon: 'account-balance',
+      iconBg: '#FFF7ED',
+      iconColor: '#D97706',
+    },
+    {
+      id: 'PRJ-5401',
+      category: 'academic',
+      categoryLabel: 'Capstone Lab',
+      status: 'Completed',
+      statusType: 'completed',
+      title: 'Tamper-Proof Credential QR Engine',
+      description:
+        'Zero-knowledge verification protocol for instant offline diploma and transcript validation.',
+      tags: ['Rust', 'WebAssembly', 'ECC-256', 'Expo'],
+      commitInfo: 'Last commit 5 days ago · #f129c0a',
+      gitStatus: 'Git Synced',
+      isPublic: true,
+      icon: 'qr-code-scanner',
+      iconBg: '#FFF1F2',
+      iconColor: '#E11D48',
     },
   ]);
 
@@ -96,6 +125,9 @@ export default function ProjectsScreen({ onNavigate }) {
       commitInfo: 'Initial commit today · #b482fc1',
       gitStatus: 'Git Synced',
       isPublic: false,
+      icon: newCategory === 'academic' ? 'military-tech' : newCategory === 'group' ? 'hub' : 'science',
+      iconBg: newCategory === 'academic' ? '#EEF2FF' : newCategory === 'group' ? '#F0F9FF' : '#F5F3FF',
+      iconColor: newCategory === 'academic' ? '#4F46E5' : newCategory === 'group' ? '#0284C7' : '#7C3AED',
     };
 
     setProjects([newProject, ...projects]);
@@ -141,8 +173,8 @@ export default function ProjectsScreen({ onNavigate }) {
           </TouchableOpacity>
         </View>
 
-        {/* Filter Pills */}
-        <View style={styles.filterBar}>
+        {/* Filter Pills & Bento Grid Layout Switcher */}
+        <View style={styles.filterBarRow}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -156,101 +188,189 @@ export default function ProjectsScreen({ onNavigate }) {
             ].map((f) => {
               const isActive = selectedFilter === f.id;
               return (
-                <TouchableOpacity
+                <ZoomCard
                   key={f.id}
                   style={[styles.filterChip, isActive && styles.filterChipActive]}
                   onPress={() => setSelectedFilter(f.id)}
-                  activeOpacity={0.7}
+                  scaleTo={1.08}
                 >
                   <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
                     {f.label}
                   </Text>
-                </TouchableOpacity>
+                </ZoomCard>
               );
             })}
           </ScrollView>
+
+          {/* View Mode Toggle — shared ViewToggle component (Mega Update §2.3) */}
+          <ViewToggle
+            mode={viewMode === 'stack' ? 'list' : 'grid'}
+            onChange={(mode) => setViewMode(mode === 'list' ? 'stack' : 'grid')}
+          />
         </View>
 
-        {/* Projects List */}
-        <View style={styles.listContainer}>
-          {filteredProjects.map((item) => (
-            <View key={item.id} style={styles.projectCard}>
-              {/* Category & Status Header */}
-              <View style={styles.cardHeaderRow}>
-                <View style={styles.categoryLeft}>
-                  <Text style={styles.categoryLabelText}>{item.categoryLabel}</Text>
-                  <View style={styles.dotSeparator} />
-                  <Text style={styles.projectIdText}>ID #{item.id}</Text>
+        {/* Bento Grate Projects Cards */}
+        {viewMode === 'stack' ? (
+          <View style={styles.listContainer}>
+            {filteredProjects.map((item) => (
+              <ZoomCard key={item.id} style={styles.bentoStackCard} scaleTo={1.05}>
+                {/* Top Row: Pastel Squircle Icon + Category + Action Circle */}
+                <View style={styles.bentoCardTopRow}>
+                  <View style={styles.bentoLeftHeader}>
+                    <View style={[styles.squircleIconBox, { backgroundColor: item.iconBg }]}>
+                      <MaterialIcons name={item.icon} size={22} color={item.iconColor} />
+                    </View>
+                    <View>
+                      <Text style={styles.categoryLabelText}>{item.categoryLabel}</Text>
+                      <Text style={styles.projectIdText}>ID #{item.id}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.bentoRightHeader}>
+                    {item.statusType === 'completed' && (
+                      <View style={styles.statusPillCompleted}>
+                        <Text style={styles.statusTextCompleted}>Completed</Text>
+                        <MaterialIcons name="check" size={13} color={Colors.verifiedGreen} />
+                      </View>
+                    )}
+                    {item.statusType === 'inProgress' && (
+                      <View style={styles.statusPillProgress}>
+                        <Text style={styles.statusTextProgress}>In progress</Text>
+                        <View style={styles.pulseDotAmber} />
+                      </View>
+                    )}
+                    {item.statusType === 'archived' && (
+                      <View style={styles.statusPillArchived}>
+                        <Text style={styles.statusTextArchived}>Archived</Text>
+                      </View>
+                    )}
+
+                    {/* Circular Action Button from Reference Image 1 */}
+                    <TouchableOpacity
+                      style={styles.circularActionBtn}
+                      onPress={() => Alert.alert(item.title, item.description)}
+                      activeOpacity={0.7}
+                    >
+                      <MaterialIcons name="north-east" size={15} color="#64748B" />
+                    </TouchableOpacity>
+                  </View>
                 </View>
 
-                {item.statusType === 'completed' && (
-                  <View style={styles.statusPillCompleted}>
-                    <Text style={styles.statusTextCompleted}>Completed</Text>
-                    <MaterialIcons name="check" size={13} color={Colors.verifiedGreen} />
-                  </View>
-                )}
-                {item.statusType === 'inProgress' && (
-                  <View style={styles.statusPillProgress}>
-                    <Text style={styles.statusTextProgress}>In progress</Text>
-                    <View style={styles.pulseDotAmber} />
-                  </View>
-                )}
-                {item.statusType === 'archived' && (
-                  <View style={styles.statusPillArchived}>
-                    <Text style={styles.statusTextArchived}>Archived</Text>
-                  </View>
-                )}
-              </View>
+                {/* Title */}
+                <Text style={styles.bentoTitleText}>{item.title}</Text>
 
-              {/* Title & Chevron */}
-              <View style={styles.titleRow}>
-                <Text style={styles.projectTitleText}>{item.title}</Text>
-                <TouchableOpacity
-                  style={styles.chevronBtn}
-                  onPress={() => Alert.alert(item.title, item.description)}
-                  activeOpacity={0.7}
-                >
-                  <MaterialIcons name="chevron-right" size={20} color={Colors.textSecondary} />
-                </TouchableOpacity>
-              </View>
+                {/* Description */}
+                <Text style={styles.bentoDescText} numberOfLines={2}>
+                  {item.description}
+                </Text>
 
-              {/* Description */}
-              <Text style={styles.projectDescText} numberOfLines={2}>
-                {item.description}
-              </Text>
+                {/* Tech Stack Chips */}
+                <View style={styles.techTagsRow}>
+                  {item.tags.map((tag, idx) => (
+                    <View key={idx} style={styles.techTag}>
+                      <Text style={styles.techTagText}>{tag}</Text>
+                    </View>
+                  ))}
+                </View>
 
-              {/* Tech Stack Chips */}
-              <View style={styles.techTagsRow}>
-                {item.tags.map((tag, idx) => (
-                  <View key={idx} style={styles.techTag}>
-                    <Text style={styles.techTagText}>{tag}</Text>
+                {/* Git Status / Ledger info (fixed invalid icon) */}
+                <View style={styles.gitStatusRow}>
+                  <View style={styles.gitStatusLeft}>
+                    <MaterialIcons
+                      name={item.gitStatus === 'Read Only' ? 'inventory-2' : 'sync'}
+                      size={15}
+                      color={item.statusType === 'completed' ? Colors.verifiedGreen : Colors.pendingAmber}
+                    />
+                    <Text style={styles.gitStatusLabel}>{item.gitStatus}</Text>
+                    <View style={styles.dotSeparator} />
+                    <Text style={styles.commitInfoText} numberOfLines={1}>
+                      {item.commitInfo}
+                    </Text>
                   </View>
-                ))}
-              </View>
-
-              {/* Git Status Bottom Bar */}
-              <View style={styles.gitStatusFooter}>
-                <View style={styles.gitStatusLeft}>
                   <MaterialIcons
-                    name={item.gitStatus === 'Read Only' ? 'inventory-2' : 'source-environment'}
-                    size={15}
-                    color={item.statusType === 'completed' ? Colors.verifiedGreen : Colors.pendingAmber}
+                    name={item.isPublic ? 'public' : 'lock'}
+                    size={14}
+                    color={Colors.neutralGray}
                   />
-                  <Text style={styles.gitStatusLabel}>{item.gitStatus}</Text>
-                  <View style={styles.dotSeparator} />
-                  <Text style={styles.commitInfoText} numberOfLines={1}>
-                    {item.commitInfo}
-                  </Text>
                 </View>
-                <MaterialIcons
-                  name={item.isPublic ? 'public' : 'lock'}
-                  size={15}
-                  color={Colors.neutralGray}
-                />
-              </View>
-            </View>
-          ))}
-        </View>
+
+                {/* Signature "Learn more" Pill Button from Reference Image 1 */}
+                <TouchableOpacity
+                  style={styles.learnMoreBtn}
+                  onPress={() =>
+                    Alert.alert(
+                      item.title,
+                      `${item.description}\n\nRepository: ${item.gitStatus}\nCommit: ${item.commitInfo}`
+                    )
+                  }
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.learnMoreText}>Learn more</Text>
+                  <MaterialIcons name="arrow-forward" size={13} color="#475569" />
+                </TouchableOpacity>
+              </ZoomCard>
+            ))}
+          </View>
+        ) : (
+          /* Bento 2-Column Grid (Image 1 Bento Grate layout) */
+          <View style={styles.bentoGridContainer}>
+            {filteredProjects.map((item) => (
+              <ZoomCard
+                key={item.id}
+                containerStyle={styles.bentoGridCardWrapper}
+                style={styles.bentoGridCard}
+                scaleTo={1.05}
+              >
+                {/* Top Row: Squircle icon + Circular action button */}
+                <View style={styles.bentoGridCardTop}>
+                  <View style={[styles.squircleIconBoxSmall, { backgroundColor: item.iconBg }]}>
+                    <MaterialIcons name={item.icon} size={18} color={item.iconColor} />
+                  </View>
+                  <TouchableOpacity
+                    style={styles.circularActionBtnSmall}
+                    onPress={() => Alert.alert(item.title, item.description)}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialIcons name="north-east" size={13} color="#64748B" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Category */}
+                <Text style={styles.gridCategoryText} numberOfLines={1}>
+                  {item.categoryLabel}
+                </Text>
+
+                {/* Title */}
+                <Text style={styles.bentoGridTitle} numberOfLines={2}>
+                  {item.title}
+                </Text>
+
+                {/* Short Description */}
+                <Text style={styles.bentoGridDesc} numberOfLines={2}>
+                  {item.description}
+                </Text>
+
+                {/* Primary Tag */}
+                {item.tags.length > 0 && (
+                  <View style={styles.gridTagPill}>
+                    <Text style={styles.gridTagText} numberOfLines={1}>
+                      {item.tags[0]} {item.tags.length > 1 ? `+${item.tags.length - 1}` : ''}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Signature "Learn more" Pill Button */}
+                <TouchableOpacity
+                  style={styles.learnMoreBtnGrid}
+                  onPress={() => Alert.alert(item.title, item.description)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.learnMoreTextGrid}>Learn more</Text>
+                </TouchableOpacity>
+              </ZoomCard>
+            ))}
+          </View>
+        )}
 
         {/* Empty State / Add Card */}
         <View style={styles.emptyCard}>
@@ -425,20 +545,24 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#ffffff',
   },
-  filterBar: {
+  filterBarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: Spacing.margin,
     paddingVertical: Spacing.spaceSm,
+    gap: 8,
   },
   filterScroll: {
     gap: 8,
   },
   filterChip: {
-    height: 30,
+    height: 32,
     paddingHorizontal: 14,
     borderRadius: Radii.full,
     backgroundColor: '#ffffff',
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -447,7 +571,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.primary,
   },
   filterChipText: {
-    ...Typography.labelSm,
+    fontFamily: FontFamilies.sansMedium,
     fontSize: 12,
     color: Colors.secondary,
     fontWeight: '500',
@@ -456,49 +580,78 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '700',
   },
+  viewToggleContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#F1F5F9',
+    borderRadius: Radii.full,
+    padding: 3,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  viewToggleBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewToggleBtnActive: {
+    backgroundColor: '#ffffff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 2,
+    elevation: 2,
+  },
   listContainer: {
     paddingHorizontal: Spacing.margin,
-    gap: Spacing.spaceMd,
+    gap: Spacing.spaceSm,
   },
-  projectCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.98)',
-    borderRadius: Radii.xl,
-    padding: Spacing.spaceMd,
+  bentoStackCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    padding: 16,
     borderWidth: 1,
-    borderColor: Colors.border,
-    shadowColor: '#12263D',
-    shadowOffset: { width: 0, height: 3 },
+    borderColor: '#E2E8F0',
+    shadowColor: '#1E293B',
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.05,
     shadowRadius: 10,
     elevation: 2,
-    overflow: 'hidden',
   },
-  cardHeaderRow: {
+  bentoCardTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: 10,
   },
-  categoryLeft: {
+  bentoLeftHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 10,
+  },
+  squircleIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   categoryLabelText: {
     ...Typography.eyebrow,
-    fontSize: 10.5,
+    fontSize: 10,
     color: Colors.textSecondary,
-  },
-  dotSeparator: {
-    width: 3.5,
-    height: 3.5,
-    borderRadius: 2,
-    backgroundColor: Colors.neutralGray,
+    letterSpacing: 0.6,
   },
   projectIdText: {
     ...Typography.codeXs,
-    fontSize: 10.5,
+    fontSize: 10,
     color: Colors.textSecondary,
+  },
+  bentoRightHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   statusPillCompleted: {
     flexDirection: 'row',
@@ -548,62 +701,57 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: Colors.neutralGray,
   },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 6,
-  },
-  projectTitleText: {
-    ...Typography.titleFormal,
-    fontSize: 15.5,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    flex: 1,
-  },
-  chevronBtn: {
-    width: 28,
-    height: 28,
+  circularActionBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  projectDescText: {
-    ...Typography.bodyMd,
-    fontSize: 13,
-    color: Colors.textSecondary,
+  bentoTitleText: {
+    fontFamily: FontFamilies.sansMedium,
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+    color: '#0F172A',
+    lineHeight: 22,
+    marginBottom: 4,
+  },
+  bentoDescText: {
+    fontFamily: FontFamilies.sans,
+    fontSize: 12.5,
+    color: '#64748B',
     lineHeight: 18,
-    marginTop: 4,
+    marginBottom: 10,
   },
   techTagsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
-    marginTop: 10,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   techTag: {
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: Radii.xs,
-    backgroundColor: Colors.surfaceContainerLow,
+    backgroundColor: '#F1F5F9',
   },
   techTagText: {
-    ...Typography.labelSm,
+    fontFamily: FontFamilies.sansMedium,
     fontSize: 11,
-    color: Colors.secondary,
-    fontWeight: '500',
+    color: '#475569',
+    fontWeight: '600',
   },
-  gitStatusFooter: {
+  gitStatusRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: Colors.canvasAlt,
-    marginHorizontal: -Spacing.spaceMd,
-    marginBottom: -Spacing.spaceMd,
-    paddingHorizontal: Spacing.spaceMd,
-    paddingVertical: 8,
     borderTopWidth: 1,
-    borderTopColor: Colors.border,
+    borderTopColor: '#F1F5F9',
+    paddingTop: 10,
   },
   gitStatusLeft: {
     flexDirection: 'row',
@@ -612,16 +760,140 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   gitStatusLabel: {
-    ...Typography.labelSm,
+    fontFamily: FontFamilies.sansMedium,
     fontSize: 11,
     fontWeight: '600',
-    color: Colors.textPrimary,
+    color: '#334155',
+  },
+  dotSeparator: {
+    width: 3.5,
+    height: 3.5,
+    borderRadius: 2,
+    backgroundColor: Colors.neutralGray,
   },
   commitInfoText: {
     ...Typography.codeXs,
     fontSize: 10.5,
     color: Colors.textSecondary,
     flex: 1,
+  },
+  learnMoreBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#F1F5F9',
+    borderRadius: Radii.full,
+    paddingVertical: 9,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  learnMoreText: {
+    fontFamily: FontFamilies.sansMedium,
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  bentoGridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: Spacing.margin - 4,
+    justifyContent: 'space-between',
+  },
+  bentoGridCardWrapper: {
+    width: '48%',
+    marginBottom: 12,
+  },
+  bentoGridCard: {
+    width: '100%',
+    backgroundColor: '#ffffff',
+    borderRadius: 18,
+    padding: 13,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#1E293B',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  bentoGridCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  squircleIconBoxSmall: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  circularActionBtnSmall: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gridCategoryText: {
+    ...Typography.eyebrow,
+    fontSize: 9.5,
+    color: Colors.textSecondary,
+    letterSpacing: 0.5,
+    marginBottom: 3,
+  },
+  bentoGridTitle: {
+    fontFamily: FontFamilies.sansMedium,
+    fontSize: 13.5,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+    color: '#0F172A',
+    lineHeight: 18,
+    marginBottom: 4,
+  },
+  bentoGridDesc: {
+    fontFamily: FontFamilies.sans,
+    fontSize: 11.5,
+    color: '#64748B',
+    lineHeight: 16,
+    marginBottom: 8,
+  },
+  gridTagPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: Radii.xs,
+    backgroundColor: '#F1F5F9',
+    marginBottom: 10,
+  },
+  gridTagText: {
+    ...Typography.codeXs,
+    fontSize: 10,
+    color: Colors.secondary,
+    fontWeight: '600',
+  },
+  learnMoreBtnGrid: {
+    backgroundColor: '#F1F5F9',
+    borderRadius: Radii.full,
+    paddingVertical: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  learnMoreTextGrid: {
+    fontFamily: FontFamilies.sansMedium,
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: '#334155',
   },
   emptyCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.98)',

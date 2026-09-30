@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors, Radii, Typography, Spacing } from '../theme/tokens';
+import ZoomCard from './ZoomCard';
 
 export default function DocumentCard({
   icon = 'workspace-premium',
@@ -16,31 +17,42 @@ export default function DocumentCard({
   verificationIcon = 'lock',
   onDownloadPress,
   onPress,
+  viewMode = 'list',
 }) {
   return (
-    <TouchableOpacity
-      style={styles.card}
+    <ZoomCard
+      containerStyle={viewMode === 'grid' ? styles.gridWrapper : undefined}
+      style={[styles.card, viewMode === 'grid' && styles.gridCard]}
       onPress={onPress}
-      activeOpacity={0.8}
     >
-      <View style={styles.leftRow}>
+      <View style={[styles.leftRow, viewMode === 'grid' && styles.gridLeftRow]}>
         <View style={[styles.iconWrapper, { backgroundColor: iconBgColor }]}>
           <MaterialIcons name={icon} size={24} color={iconColor} />
         </View>
 
-        <View style={styles.contentColumn}>
+        <View style={[styles.contentColumn, viewMode === 'grid' && styles.gridContentColumn]}>
           <View style={styles.metaRow}>
             <View style={[styles.badge, { backgroundColor: statusBadgeBg }]}>
               <Text style={[styles.badgeText, { color: statusBadgeColor }]}>{statusBadge}</Text>
             </View>
-            <Text style={styles.fileMetaText}>{fileMeta}</Text>
+            <Text
+              style={[styles.fileMetaText, viewMode === 'grid' && styles.gridFileMetaText]}
+              numberOfLines={viewMode === 'grid' ? 2 : 1}
+            >
+              {fileMeta}
+            </Text>
           </View>
 
-          <Text style={styles.titleText} numberOfLines={1}>{title}</Text>
+          <Text style={styles.titleText} numberOfLines={2}>{title}</Text>
 
-          <View style={styles.verificationRow}>
-            <MaterialIcons name={verificationIcon} size={13} color={Colors.verifiedGreen} />
-            <Text style={styles.verificationText}>{verificationLabel}</Text>
+          <View style={[styles.verificationRow, viewMode === 'grid' && styles.gridVerificationRow]}>
+            <MaterialIcons name={verificationIcon} size={14} color={Colors.verifiedGreen} />
+            <Text
+              style={[styles.verificationText, viewMode === 'grid' && styles.gridVerificationText]}
+              numberOfLines={viewMode === 'grid' ? 2 : 1}
+            >
+              {verificationLabel}
+            </Text>
           </View>
         </View>
       </View>
@@ -51,28 +63,37 @@ export default function DocumentCard({
         activeOpacity={0.7}
         accessibilityLabel="Download Document"
       >
-        <MaterialIcons name="download" size={20} color={Colors.textPrimary} />
+        <MaterialIcons name="download" size={20} color="#1E293B" />
       </TouchableOpacity>
-    </TouchableOpacity>
+    </ZoomCard>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#ffffff',
-    borderRadius: Radii.lg,
-    padding: Spacing.spaceMd,
+    borderRadius: 14,
+    padding: 14,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: '#E2E8F0',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: Spacing.spaceXs,
+    marginBottom: Spacing.spaceSm,
     shadowColor: '#12263D',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 1,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  gridCard: {
+    width: '100%',
+    flexDirection: 'column',
+    alignItems: 'stretch',
+  },
+  gridWrapper: {
+    width: '48%',
+    marginBottom: Spacing.spaceSm,
   },
   leftRow: {
     flexDirection: 'row',
@@ -81,12 +102,22 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: Spacing.spaceSm,
   },
+  gridLeftRow: {
+    marginRight: 0,
+    flexDirection: 'column',
+    alignItems: 'stretch',
+  },
+  gridContentColumn: {
+    width: '100%',
+  },
   iconWrapper: {
     width: 44,
     height: 44,
-    borderRadius: Radii.md,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.04)',
   },
   contentColumn: {
     flex: 1,
@@ -99,25 +130,35 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   badge: {
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
     borderRadius: Radii.full,
   },
   badgeText: {
-    ...Typography.labelSm,
-    fontSize: 10.5,
-    fontWeight: '600',
+    ...Typography.credentialBadge,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   fileMetaText: {
-    ...Typography.codeXs,
-    fontSize: 10.5,
-    color: Colors.textSecondary,
+    ...Typography.credentialMeta,
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#64748B',
+  },
+  gridFileMetaText: {
+    flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
   },
   titleText: {
-    ...Typography.titleFormal,
+    ...Typography.credentialTitle,
     fontSize: 14.5,
-    fontWeight: '600',
-    color: Colors.textPrimary,
+    fontWeight: '700',
+    letterSpacing: -0.25,
+    lineHeight: 19.5,
+    color: '#0F172A',
+    marginVertical: 2,
   },
   verificationRow: {
     flexDirection: 'row',
@@ -125,18 +166,29 @@ const styles = StyleSheet.create({
     gap: 4,
     marginTop: 2,
   },
+  gridVerificationRow: {
+    alignItems: 'flex-start',
+  },
   verificationText: {
-    ...Typography.labelSm,
-    fontSize: 11,
-    color: Colors.verifiedGreen,
+    ...Typography.credentialVerification,
+    fontSize: 11.5,
     fontWeight: '500',
+    color: '#2E7D4F',
+    letterSpacing: -0.1,
+  },
+  gridVerificationText: {
+    flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
   },
   downloadButton: {
     width: 38,
     height: 38,
-    borderRadius: Radii.sm,
-    backgroundColor: Colors.surfaceContainerLow,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
 });

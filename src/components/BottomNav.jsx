@@ -1,7 +1,8 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors, Radii, Typography, Spacing } from '../theme/tokens';
+import ZoomCard from './ZoomCard';
 
 export const TABS = [
   { id: 'home', label: 'Home', icon: 'dashboard' },
@@ -11,6 +12,15 @@ export const TABS = [
   { id: 'profile', label: 'Profile', icon: 'badge' },
 ];
 
+/**
+ * BottomNav — Dock-style magnification bottom tab bar
+ *
+ * Per Mega Update Section 2.2:
+ * - On discrete tap (mobile), the selected icon gets a strong scale-up + settle animation
+ * - Icon + label move together as one unit
+ * - Label becomes bolder on the active/hovered icon
+ * - Each tab uses ZoomCard with the shared zoom interaction
+ */
 export default function BottomNav({ activeTab = 'home', onTabPress }) {
   return (
     <View style={styles.floatingWrapper} pointerEvents="box-none">
@@ -18,26 +28,31 @@ export default function BottomNav({ activeTab = 'home', onTabPress }) {
         {TABS.map((tab) => {
           const isActive = activeTab === tab.id;
           return (
-            <TouchableOpacity
+            <ZoomCard
               key={tab.id}
               style={styles.tabButton}
               onPress={() => onTabPress?.(tab.id)}
-              activeOpacity={0.7}
+              scaleTo={isActive ? 1.18 : 1.09}
+              friction={5}
+              tension={140}
               accessibilityRole="tab"
               accessibilityState={{ selected: isActive }}
+              accessibilityLabel={tab.label}
             >
               <View style={[styles.iconContainer, isActive && styles.activeIconContainer]}>
-                {isActive && <View style={styles.activeDot} />}
                 <MaterialIcons
                   name={tab.icon}
                   size={22}
                   color={isActive ? Colors.primary : Colors.textSecondary}
                 />
               </View>
-              <Text style={[styles.tabLabel, isActive && styles.activeTabLabel]}>
+              <Text style={[
+                styles.tabLabel,
+                isActive && styles.activeTabLabel,
+              ]}>
                 {tab.label}
               </Text>
-            </TouchableOpacity>
+            </ZoomCard>
           );
         })}
       </View>
@@ -97,14 +112,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(163, 19, 33, 0.1)',
     borderWidth: 1,
     borderColor: 'rgba(163, 19, 33, 0.18)',
-  },
-  activeDot: {
-    position: 'absolute',
-    top: 2,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: Colors.primary,
   },
   tabLabel: {
     ...Typography.labelSm,

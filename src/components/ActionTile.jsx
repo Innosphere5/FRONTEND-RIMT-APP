@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, Pressable, Animated } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors, Radii, Typography, Spacing } from '../theme/tokens';
 
@@ -11,22 +11,45 @@ export default function ActionTile({
   subtitle,
   onPress,
 }) {
+  const [scale] = useState(() => new Animated.Value(1));
+
+  const handlePressIn = () => {
+    Animated.spring(scale, {
+      toValue: 1.04,
+      friction: 5,
+      tension: 130,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scale, {
+      toValue: 1,
+      friction: 5,
+      tension: 130,
+      useNativeDriver: true,
+    }).start();
+  };
+
   return (
-    <TouchableOpacity
-      style={styles.card}
+    <Pressable
+      style={{ flex: 1 }}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
       onPress={onPress}
-      activeOpacity={0.7}
     >
-      <View style={[styles.iconBox, { backgroundColor: iconBgColor }]}>
-        <MaterialIcons name={icon} size={20} color={iconColor} />
-      </View>
-      <View style={styles.textContainer}>
-        <Text style={styles.title} numberOfLines={1}>{title}</Text>
-        {subtitle ? (
-          <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
-        ) : null}
-      </View>
-    </TouchableOpacity>
+      <Animated.View style={[styles.card, { transform: [{ scale }] }]}>
+        <View style={[styles.iconBox, { backgroundColor: iconBgColor }]}>
+          <MaterialIcons name={icon} size={20} color={iconColor} />
+        </View>
+        <View style={styles.textContainer}>
+          <Text style={styles.title} numberOfLines={1}>{title}</Text>
+          {subtitle ? (
+            <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
+          ) : null}
+        </View>
+      </Animated.View>
+    </Pressable>
   );
 }
 

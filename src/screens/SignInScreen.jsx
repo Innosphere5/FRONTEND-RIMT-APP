@@ -14,31 +14,170 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { Colors, Spacing, Typography, Radii, ImageAssets } from '../theme/tokens';
+import { useAuth } from '../context/AuthContext';
+import ShineEffect from '../components/ShineEffect';
+import NoticeModal from '../components/NoticeModal';
 
-export default function SignInScreen({ onSignInSuccess }) {
-  const [enrollment, setEnrollment] = useState('RIMT/22/BTCSE/0417');
-  const [password, setPassword] = useState('••••••••••••');
-  const [showPassword, setShowPassword] = useState(false);
+export default function SignInScreen({
+  onSignInSuccess,
+  onSignUpSuccess,
+  onPendingStatus,
+  onRejectedStatus,
+  onNavigate,
+}) {
+  const { signIn, signUp, supabaseStatus, hasEverRegistered } = useAuth();
+
+  // Auth mode: 'signin' or 'signup'
+  const [authMode, setAuthMode] = useState(hasEverRegistered ? 'signin' : 'signup');
+
+  // Form fields for registration & sign in (simplified to Name, Roll No, Department, Year/Semester)
+  const [name, setName] = useState('');
+  const [rollNo, setRollNo] = useState('');
+  const [department, setDepartment] = useState('BCA');
+  const [yearSemester, setYearSemester] = useState('1st Year (1st Sem)');
+  const [avatarAsset, setAvatarAsset] = useState(null);
+
+  // UI states
   const [isLoading, setIsLoading] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [notice, setNotice] = useState(null);
 
-  const handleSignIn = () => {
-    if (!enrollment.trim() || !password.trim()) {
-      Alert.alert('Required Fields', 'Please enter your enrollment number and password.');
+  const handlePickAvatar = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.5,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets[0]) {
+        setAvatarAsset(result.assets[0]);
+      }
+    } catch (err) {
+      console.warn('Could not pick profile image:', err.message);
+      Alert.alert('Image Selection', 'Could not open photo library. Please try again.');
+    }
+  };
+
+  const handleSignInAction = async () => {
+    if (!rollNo.trim()) {
+      Alert.alert('Roll Number Required', 'Please enter your university Roll Number.');
       return;
     }
 
     setIsLoading(true);
-    // Simulate secure TLS authentication sequence from design
-    setTimeout(() => {
+    setStatusMessage('Checking credentials & approval status...');
+
+    try {
+      const result = await signIn({ rollNo: rollNo.trim() });
+
+      if (result.status === 'PENDING') {
+        onPendingStatus?.(result.student || { roll_number: rollNo.trim() });
+        return;
+      }
+
+      if (result.status === 'REJECTED' || result.status === 'REVOKED') {
+        onRejectedStatus?.(result.student || { roll_number: rollNo.trim() }, result.reason);
+        return;
+      }
+
+      if (result.success && (result.status === 'APPROVED' || result.status === 'VERIFIED')) {
+        setIsVerified(true);
+        setStatusMessage(`Welcome back, ${result.student?.name || result.student?.full_name || 'Scholar'}!`);
+        setTimeout(() => {
+          setIsVerified(false);
+          onSignInSuccess?.();
+        }, 800);
+      } else {
+        setNotice({
+          title: 'Sign In Unsuccessful',
+          message: result.error || 'Could not find this scholar. Check the roll number or register a new account.',
+          actionLabel: 'Switch to Sign Up',
+          secondaryLabel: 'Cancel',
+          icon: 'person-search',
+          tone: 'warning',
+          onAction: () => {
+            setAuthMode('signup');
+            setNotice(null);
+          },
+        });
+      }
+    } catch (err) {
+      setNotice({
+        title: 'Authentication issue',
+        message: err.message || 'A network error prevented sign in. Please try again.',
+        icon: 'cloud-off',
+        tone: 'warning',
+      });
+    } finally {
       setIsLoading(false);
-      setIsVerified(true);
-      setTimeout(() => {
-        setIsVerified(false);
-        onSignInSuccess?.();
-      }, 900);
-    }, 1200);
+    }
+  };
+
+  const handleSignUpAction = async () => {
+    if (!name.trim()) {
+      Alert.alert('Full Name Required', 'Please enter your full legal name.');
+      return;
+    }
+    if (!rollNo.trim()) {
+      Alert.alert('Roll Number Required', 'Please enter your university Roll Number.');
+      return;
+    }
+
+    setIsLoading(true);
+    setStatusMessage('Submitting registration to Admin Queue...');
+
+    try {
+      const result = await signUp({
+        name: name.trim(),
+        fullName: name.trim(),
+        rollNo: rollNo.trim(),
+        rollNumber: rollNo.trim(),
+        department,
+        batch: yearSemester,
+        yearSemester,
+        avatarAsset,
+      });
+
+      if (result.success && result.status === 'PENDING') {
+        setIsVerified(true);
+        setStatusMessage('Registration Received! Awaiting Admin Approval...');
+        setTimeout(() => {
+          setIsVerified(false);
+          onPendingStatus?.(result.student || { full_name: name.trim(), roll_number: rollNo.trim(), department, year_semester: yearSemester });
+        }, 900);
+      } else {
+        const alreadyRegistered = result.error?.toLowerCase().includes('already registered');
+        setNotice({
+          title: 'Registration Notice',
+          message: result.error || 'Failed to sign up.',
+          actionLabel: alreadyRegistered ? 'Sign in instead' : 'Understood',
+          onAction: alreadyRegistered
+            ? () => {
+                setAuthMode('signin');
+                setNotice(null);
+              }
+            : () => setNotice(null),
+        });
+      }
+    } catch (err) {
+      Alert.alert('Registration Error', err.message || 'Could not complete registration.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const showSqlHelp = () => {
+    Alert.alert(
+      'Supabase Database Setup',
+      'The "students" table script has been created in supabase/schema.sql.\n\nOpen your Supabase Dashboard -> SQL Editor and execute it to enable live cloud storage with Row Level Security.',
+      [{ text: 'Got it', style: 'default' }]
+    );
   };
 
   return (
@@ -60,49 +199,226 @@ export default function SignInScreen({ onSignInSuccess }) {
             resizeMode="cover"
           />
           <LinearGradient
-            colors={['rgba(18, 38, 61, 0.2)', 'rgba(18, 38, 61, 0.7)', '#12263D']}
+            colors={['rgba(18, 38, 61, 0.25)', 'rgba(18, 38, 61, 0.75)', '#12263D']}
             style={styles.heroScrim}
           />
 
-          {/* Top Badges */}
+          {/* Top Badges Row */}
           <View style={styles.topBadgesRow}>
             <View style={styles.officialBadge}>
               <View style={styles.pulseDot} />
-              <Text style={styles.officialBadgeText}>Official Portal</Text>
+              <Text style={styles.officialBadgeText}>Official Supabase Portal</Text>
             </View>
-            <Text style={styles.secTlsText}>SEC-TLS 1.3</Text>
+            <TouchableOpacity onPress={showSqlHelp} activeOpacity={0.7}>
+              <View style={styles.dbBadge}>
+                <MaterialIcons
+                  name={supabaseStatus.tableExists ? 'cloud-done' : 'cloud-queue'}
+                  size={13}
+                  color={supabaseStatus.tableExists ? '#6ee7b7' : '#fde047'}
+                />
+                <Text style={styles.dbBadgeText}>
+                  {supabaseStatus.tableExists ? 'DB LIVE' : 'SUPABASE READY'}
+                </Text>
+              </View>
+            </TouchableOpacity>
           </View>
 
           {/* Hero Titles */}
           <View style={styles.heroTextContainer}>
             <Text style={styles.heroEyebrow}>Collegiate Digital Identity</Text>
             <Text style={styles.heroHeadline}>Academic Access Gateway</Text>
+            <ShineEffect
+              width={140}
+              duration={2600}
+              delay={3200}
+              outputRange={[-200, 420]}
+            />
           </View>
         </View>
 
-        {/* Elevated Sign-In Card */}
+        {/* Elevated Auth Card */}
         <View style={styles.cardContainer}>
           <View style={styles.card}>
-            {/* RIMT Logo Crest */}
+            {/* Ambient Card Sweep Shine Animation Constrained to Card Body */}
+            <View style={styles.cardShineOverlay} pointerEvents="none">
+              <ShineEffect
+                width={200}
+                duration={2800}
+                delay={3600}
+                outputRange={[-280, 500]}
+              />
+            </View>
+
+            {/* RIMT Logo Crest with Protruding Top & Sweep Animation */}
             <View style={styles.crestWrapper}>
               <Image
                 source={{ uri: ImageAssets.universityLogo }}
                 style={styles.crestImage}
                 resizeMode="contain"
               />
+              <ShineEffect
+                width={80}
+                duration={2200}
+                delay={2600}
+                outputRange={[-120, 240]}
+              />
+            </View>
+
+            {/* Mode Switcher Tabs */}
+            <View style={styles.modeTabsWrapper}>
+              <TouchableOpacity
+                style={[
+                  styles.modeTab,
+                  authMode === 'signin' && styles.modeTabActive,
+                ]}
+                onPress={() => setAuthMode('signin')}
+                activeOpacity={0.8}
+              >
+                <MaterialIcons
+                  name="login"
+                  size={16}
+                  color={authMode === 'signin' ? '#ffffff' : Colors.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.modeTabText,
+                    authMode === 'signin' && styles.modeTabTextActive,
+                  ]}
+                >
+                  Sign In (Roll No)
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.modeTab,
+                  authMode === 'signup' && styles.modeTabActive,
+                ]}
+                onPress={() => setAuthMode('signup')}
+                activeOpacity={0.8}
+              >
+                <MaterialIcons
+                  name="person-add"
+                  size={16}
+                  color={authMode === 'signup' ? '#ffffff' : Colors.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.modeTabText,
+                    authMode === 'signup' && styles.modeTabTextActive,
+                  ]}
+                >
+                  Sign Up (New)
+                </Text>
+              </TouchableOpacity>
             </View>
 
             <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>Sign in</Text>
-              <Text style={styles.cardSubtitle}>
-                Use the enrollment number and password given by the university.
+              <Text style={styles.cardTitle}>
+                {authMode === 'signin' ? 'Scholar Sign In' : 'Scholar Registration'}
               </Text>
+              <Text style={styles.cardSubtitle}>
+                {authMode === 'signin'
+                  ? 'Enter your institutional Roll Number to access your academic vault.'
+                  : 'Register your name and Roll Number into the university Supabase vault.'}
+              </Text>
+              <ShineEffect
+                width={140}
+                duration={2400}
+                delay={2800}
+                outputRange={[-180, 360]}
+              />
             </View>
 
-            {/* Enrollment Input */}
+            {/* Sign Up: Profile Picture Upload */}
+            {authMode === 'signup' && (
+              <View style={styles.avatarPickerSection}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.inputLabel}>Scholar Profile Photo</Text>
+                  <Text style={styles.recommendedTag}>Identity Verification</Text>
+                </View>
+                <View style={styles.avatarPickerRow}>
+                  <TouchableOpacity
+                    style={styles.avatarContainer}
+                    onPress={handlePickAvatar}
+                    activeOpacity={0.8}
+                  >
+                    {avatarAsset?.uri ? (
+                      <Image source={{ uri: avatarAsset.uri }} style={styles.avatarPreviewImage} />
+                    ) : (
+                      <View style={styles.avatarPlaceholder}>
+                        <MaterialIcons name="person-outline" size={32} color={Colors.primary} />
+                      </View>
+                    )}
+                    <View style={styles.avatarCameraBadge}>
+                      <MaterialIcons name="photo-camera" size={14} color="#ffffff" />
+                    </View>
+                  </TouchableOpacity>
+                  <View style={styles.avatarPickerTextCol}>
+                    <Text style={styles.avatarPickerTitle}>
+                      {avatarAsset ? 'Profile Photo Selected' : 'Upload Profile Picture'}
+                    </Text>
+                    <Text style={styles.avatarPickerHint}>
+                      Admin requires a photo to verify and approve your student account.
+                    </Text>
+                    <View style={styles.avatarActionsRow}>
+                      <TouchableOpacity
+                        style={styles.avatarActionBtn}
+                        onPress={handlePickAvatar}
+                        activeOpacity={0.7}
+                      >
+                        <MaterialIcons name="photo-library" size={13} color={Colors.primary} />
+                        <Text style={styles.avatarActionBtnText}>
+                          {avatarAsset ? 'Change Photo' : 'Choose Photo'}
+                        </Text>
+                      </TouchableOpacity>
+                      {avatarAsset && (
+                        <TouchableOpacity
+                          style={styles.avatarRemoveBtn}
+                          onPress={() => setAvatarAsset(null)}
+                          activeOpacity={0.7}
+                        >
+                          <MaterialIcons name="close" size={13} color={Colors.danger} />
+                          <Text style={styles.avatarRemoveBtnText}>Remove</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </View>
+                </View>
+              </View>
+            )}
+
+            {/* Sign Up: Name Input */}
+            {authMode === 'signup' && (
+              <View style={styles.inputGroup}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.inputLabel}>Full Legal Name</Text>
+                  <Text style={styles.requiredTag}>Required</Text>
+                </View>
+                <View style={styles.inputWrapper}>
+                  <MaterialIcons
+                    name="badge"
+                    size={20}
+                    color={Colors.neutralGray}
+                    style={styles.inputLeadingIcon}
+                  />
+                  <TextInput
+                    style={styles.textInput}
+                    value={name}
+                    onChangeText={setName}
+                    placeholder="e.g. Harpreet Singh"
+                    placeholderTextColor={Colors.neutralGray}
+                    autoCapitalize="words"
+                    autoCorrect={false}
+                  />
+                </View>
+              </View>
+            )}
+
+            {/* Roll Number Input */}
             <View style={styles.inputGroup}>
               <View style={styles.labelRow}>
-                <Text style={styles.inputLabel}>Enrollment No. or Registered Email</Text>
+                <Text style={styles.inputLabel}>University Roll Number</Text>
                 <Text style={styles.requiredTag}>Required</Text>
               </View>
               <View style={styles.inputWrapper}>
@@ -114,58 +430,148 @@ export default function SignInScreen({ onSignInSuccess }) {
                 />
                 <TextInput
                   style={styles.textInput}
-                  value={enrollment}
-                  onChangeText={setEnrollment}
+                  value={rollNo}
+                  onChangeText={(val) => setRollNo(val.toUpperCase())}
                   placeholder="e.g. RIMT/22/BTCSE/0417"
                   placeholderTextColor={Colors.neutralGray}
-                  autoCapitalize="none"
+                  autoCapitalize="characters"
+                  autoCorrect={false}
                 />
+                {rollNo.length > 0 && (
+                  <TouchableOpacity
+                    style={styles.clearBtn}
+                    onPress={() => setRollNo('')}
+                    activeOpacity={0.6}
+                  >
+                    <MaterialIcons name="cancel" size={16} color={Colors.neutralGray} />
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
 
-            {/* Password Input */}
-            <View style={styles.inputGroup}>
-              <View style={styles.labelRow}>
-                <Text style={styles.inputLabel}>Password</Text>
-                <TouchableOpacity onPress={() => Alert.alert('Password Recovery', 'Please contact Campus IT Support to reset your institutional credentials.')}>
-                  <Text style={styles.forgotPasswordText}>Forgot password?</Text>
-                </TouchableOpacity>
+            {/* Sign Up: Department & Semester Dropdowns / Pickers */}
+            {authMode === 'signup' && (
+              <>
+                <View style={styles.inputGroup}>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.inputLabel}>Academic Department</Text>
+                    <Text style={styles.requiredTag}>Required</Text>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 4 }}>
+                    {[
+                      'BCA',
+                      'B.Sc IT',
+                      'B.Sc Cyber Security',
+                      'B.Sc (Hons) AI & ML',
+                    ].map((d) => (
+                      <TouchableOpacity
+                        key={d}
+                        onPress={() => setDepartment(d)}
+                        style={[
+                          styles.chipOption,
+                          department === d && styles.chipOptionSelected,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.chipOptionText,
+                            department === d && styles.chipOptionTextSelected,
+                          ]}
+                        >
+                          {d}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.inputLabel}>Year / Current Semester</Text>
+                    <Text style={styles.requiredTag}>Required</Text>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 4 }}>
+                    {[
+                      '1st Year (1st Sem)',
+                      '1st Year (2nd Sem)',
+                      '2nd Year (3rd Sem)',
+                      '2nd Year (4th Sem)',
+                      '3rd Year (5th Sem)',
+                      '3rd Year (6th Sem)',
+                      '4th Year (7th Sem)',
+                      '4th Year (8th Sem)',
+                    ].map((sem) => (
+                      <TouchableOpacity
+                        key={sem}
+                        onPress={() => setYearSemester(sem)}
+                        style={[
+                          styles.chipOption,
+                          yearSemester === sem && styles.chipOptionSelected,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.chipOptionText,
+                            yearSemester === sem && styles.chipOptionTextSelected,
+                          ]}
+                        >
+                          {sem}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              </>
+            )}
+
+            {/* Gated Review Warning Box */}
+            {authMode === 'signup' && (
+              <View style={styles.gatedBanner}>
+                <MaterialIcons name="security" size={20} color="#b45309" />
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text style={styles.gatedBannerTitle}>Admin Approval Required</Text>
+                  <Text style={styles.gatedBannerDesc}>
+                    New accounts enter a PENDING review queue. An administrator will verify your credentials before granting access to portal features.
+                  </Text>
+                </View>
               </View>
-              <View style={styles.inputWrapper}>
-                <MaterialIcons
-                  name="lock"
-                  size={20}
-                  color={Colors.neutralGray}
-                  style={styles.inputLeadingIcon}
-                />
-                <TextInput
-                  style={[styles.textInput, { paddingRight: 44 }]}
-                  value={password}
-                  onChangeText={setPassword}
-                  placeholder="••••••••"
-                  placeholderTextColor={Colors.neutralGray}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                />
-                <TouchableOpacity
-                  style={styles.eyeButton}
-                  onPress={() => setShowPassword(!showPassword)}
-                  activeOpacity={0.7}
-                  accessibilityLabel="Toggle password visibility"
-                >
-                  <MaterialIcons
-                    name={showPassword ? 'visibility-off' : 'visibility'}
-                    size={20}
-                    color={Colors.neutralGray}
-                  />
-                </TouchableOpacity>
-              </View>
+            )}
+
+            {/* Quick Demo Pill (Useful for rapid testing) */}
+            <View style={styles.demoPillsRow}>
+              <Text style={styles.demoLabel}>Quick test:</Text>
+              <TouchableOpacity
+                style={styles.demoPill}
+                onPress={() => {
+                  setRollNo('RIMT/22/BTCSE/0417');
+                  if (authMode === 'signup') {
+                    setName('Aarav Sharma');
+                    setDepartment('B.Tech CSE');
+                  }
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.demoPillText}>RIMT/22/BTCSE/0417 (Aarav)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.demoPill}
+                onPress={() => {
+                  setRollNo('RIMT/23/BBA/0512');
+                  if (authMode === 'signup') {
+                    setName('Priya Kaur');
+                    setDepartment('BBA');
+                  }
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.demoPillText}>RIMT/23/BBA/0512 (Priya)</Text>
+              </TouchableOpacity>
             </View>
 
-            {/* Sign In CTA Button */}
+            {/* Action CTA Button */}
             <TouchableOpacity
               style={styles.submitButtonWrapper}
-              onPress={handleSignIn}
+              onPress={authMode === 'signin' ? handleSignInAction : handleSignUpAction}
               disabled={isLoading || isVerified}
               activeOpacity={0.85}
             >
@@ -180,29 +586,67 @@ export default function SignInScreen({ onSignInSuccess }) {
                 {isLoading ? (
                   <View style={styles.buttonLoadingRow}>
                     <ActivityIndicator size="small" color="#ffffff" />
-                    <Text style={styles.submitButtonText}>Authenticating...</Text>
+                    <Text style={styles.submitButtonText}>
+                      {statusMessage || 'Processing...'}
+                    </Text>
                   </View>
                 ) : isVerified ? (
                   <View style={styles.buttonLoadingRow}>
                     <MaterialIcons name="check-circle" size={20} color="#ffffff" />
-                    <Text style={styles.submitButtonText}>Identity Verified</Text>
+                    <Text style={styles.submitButtonText}>
+                      {statusMessage || 'Identity Verified'}
+                    </Text>
                   </View>
                 ) : (
                   <View style={styles.buttonLoadingRow}>
-                    <Text style={styles.submitButtonText}>Sign In</Text>
-                    <MaterialIcons name="arrow-forward" size={20} color="#ffffff" />
+                    <Text style={styles.submitButtonText}>
+                      {authMode === 'signin' ? 'Sign In to Portal' : 'Register & Enter Vault'}
+                    </Text>
+                    <MaterialIcons
+                      name={authMode === 'signin' ? 'arrow-forward' : 'check'}
+                      size={20}
+                      color="#ffffff"
+                    />
                   </View>
                 )}
               </LinearGradient>
             </TouchableOpacity>
 
+            {/* Toggle Helper Link */}
+            <TouchableOpacity
+              style={styles.toggleModeLink}
+              onPress={() => setAuthMode(authMode === 'signin' ? 'signup' : 'signin')}
+              activeOpacity={0.75}
+            >
+              <Text style={styles.toggleModeText}>
+                {authMode === 'signin'
+                  ? 'First time here? '
+                  : 'Already registered your roll number? '}
+                <Text style={styles.toggleModeBold}>
+                  {authMode === 'signin' ? 'Sign Up now' : 'Sign In directly'}
+                </Text>
+              </Text>
+            </TouchableOpacity>
+
             {/* Encrypted Proof Footnote */}
             <View style={styles.encryptedBanner}>
-              <MaterialIcons name="verified-user" size={18} color={Colors.verifiedGreen} />
+              <MaterialIcons name="verified-user" size={17} color={Colors.verifiedGreen} />
               <Text style={styles.encryptedBannerText}>
-                Encrypted university credential verification
+                Supabase TLS 1.3 encrypted vault storage
               </Text>
             </View>
+
+            {/* Onboarding Tour Link */}
+            <TouchableOpacity
+              style={styles.onboardingLinkBtn}
+              onPress={() => onNavigate?.('onboarding')}
+              activeOpacity={0.75}
+            >
+              <MaterialIcons name="auto-awesome" size={15} color={Colors.primary} />
+              <Text style={styles.onboardingLinkText}>
+                New scholar? <Text style={styles.onboardingLinkBold}>View Onboarding Tour</Text>
+              </Text>
+            </TouchableOpacity>
           </View>
 
           {/* IT Helpdesk Card */}
@@ -211,22 +655,34 @@ export default function SignInScreen({ onSignInSuccess }) {
               <MaterialIcons name="headset-mic" size={20} color={Colors.secondary} />
             </View>
             <View style={styles.helpdeskTextColumn}>
-              <Text style={styles.helpdeskTitle}>Need help signing in?</Text>
-              <Text style={styles.helpdeskSubtitle}>Contact Campus IT Support</Text>
+              <Text style={styles.helpdeskTitle}>Need help with your Roll No.?</Text>
+              <Text style={styles.helpdeskSubtitle}>Campus Academic Registrar</Text>
               <Text style={styles.helpdeskContact}>
-                helpdesk@rimt.ac.in · +91 (1765) 523100 · Mon-Fri 9AM-5PM
+                registrar@rimt.ac.in · +91 (1765) 523100 · Mon-Fri 9AM-5PM
               </Text>
             </View>
           </View>
 
           {/* Institutional Compliance Tag */}
           <View style={styles.footerCertRow}>
-            <Text style={styles.certText}>Institutional Protocol v4.8</Text>
+            <Text style={styles.certText}>Supabase Auth Gateway v2.4</Text>
             <Text style={styles.certDot}>•</Text>
             <Text style={styles.certText}>ISO 27001 Certified</Text>
           </View>
         </View>
       </ScrollView>
+      <NoticeModal
+        visible={!!notice}
+        title={notice?.title}
+        message={notice?.message}
+        actionLabel={notice?.actionLabel || 'Understood'}
+        onAction={notice?.onAction || (() => setNotice(null))}
+        secondaryLabel={notice?.secondaryLabel}
+        onSecondaryAction={() => setNotice(null)}
+        onDismiss={() => setNotice(null)}
+        icon={notice?.icon || 'info-outline'}
+        tone={notice?.tone || 'brand'}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -290,17 +746,30 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
   },
-  secTlsText: {
+  dbBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(18, 38, 61, 0.7)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: Radii.full,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+  },
+  dbBadgeText: {
     ...Typography.codeXs,
-    color: 'rgba(209, 228, 255, 0.9)',
-    fontSize: 11,
-    fontWeight: '600',
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   heroTextContainer: {
     position: 'absolute',
     bottom: 30,
     left: Spacing.margin,
     right: Spacing.margin,
+    overflow: 'hidden',
   },
   heroEyebrow: {
     ...Typography.eyebrow,
@@ -333,6 +802,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 24,
     elevation: 6,
+    position: 'relative',
+  },
+  cardShineOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: Radii.xl,
+    overflow: 'hidden',
   },
   crestWrapper: {
     alignSelf: 'center',
@@ -344,7 +819,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: -38,
-    marginBottom: Spacing.spaceMd,
+    marginBottom: Spacing.spaceSm,
     borderWidth: 1,
     borderColor: Colors.border,
     shadowColor: '#12263D',
@@ -352,18 +827,59 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 12,
     elevation: 4,
+    overflow: 'hidden',
+    zIndex: 20,
   },
   crestImage: {
     width: '100%',
     height: '100%',
   },
+  modeTabsWrapper: {
+    flexDirection: 'row',
+    backgroundColor: Colors.canvasAlt,
+    borderRadius: Radii.md,
+    padding: 4,
+    marginBottom: Spacing.spaceMd,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  modeTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    borderRadius: Radii.sm,
+  },
+  modeTabActive: {
+    backgroundColor: Colors.primary,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  modeTabText: {
+    ...Typography.labelSm,
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  modeTabTextActive: {
+    color: '#ffffff',
+    fontWeight: '700',
+  },
   cardHeader: {
     alignItems: 'center',
-    marginBottom: Spacing.spaceLg,
+    marginBottom: Spacing.spaceMd,
+    overflow: 'hidden',
+    position: 'relative',
+    paddingVertical: 4,
   },
   cardTitle: {
     ...Typography.displayHeroMobile,
-    fontSize: 26,
+    fontSize: 23,
     fontWeight: '700',
     color: Colors.textPrimary,
     marginBottom: 4,
@@ -372,10 +888,11 @@ const styles = StyleSheet.create({
     ...Typography.bodyMd,
     textAlign: 'center',
     color: Colors.textSecondary,
-    lineHeight: 20,
+    lineHeight: 19,
+    fontSize: 13,
   },
   inputGroup: {
-    marginBottom: Spacing.spaceMd,
+    marginBottom: Spacing.spaceSm + 2,
   },
   labelRow: {
     flexDirection: 'row',
@@ -387,17 +904,12 @@ const styles = StyleSheet.create({
     ...Typography.labelMd,
     fontSize: 13,
     color: Colors.textPrimary,
+    fontWeight: '600',
   },
   requiredTag: {
     ...Typography.codeXs,
     fontSize: 10.5,
     color: Colors.textSecondary,
-  },
-  forgotPasswordText: {
-    ...Typography.labelSm,
-    fontSize: 12,
-    color: Colors.primary,
-    fontWeight: '600',
   },
   inputWrapper: {
     height: 48,
@@ -417,20 +929,49 @@ const styles = StyleSheet.create({
     height: '100%',
     ...Typography.bodyMd,
     color: Colors.textPrimary,
+    fontSize: 14,
   },
-  eyeButton: {
-    position: 'absolute',
-    right: 4,
-    width: 38,
-    height: 38,
+  clearBtn: {
+    padding: 6,
+  },
+  helperTip: {
+    ...Typography.bodySm,
+    fontSize: 11.5,
+    color: Colors.textSecondary,
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+  demoPillsRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 6,
+    marginBottom: Spacing.spaceMd,
+    marginTop: 2,
+  },
+  demoLabel: {
+    ...Typography.codeXs,
+    fontSize: 11,
+    color: Colors.neutralGray,
+  },
+  demoPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: 'rgba(163, 19, 33, 0.08)',
+    borderRadius: Radii.full,
+    borderWidth: 1,
+    borderColor: 'rgba(163, 19, 33, 0.2)',
+  },
+  demoPillText: {
+    ...Typography.codeXs,
+    fontSize: 10.5,
+    color: Colors.primary,
+    fontWeight: '600',
   },
   submitButtonWrapper: {
-    height: 52,
+    height: 50,
     borderRadius: Radii.md,
     overflow: 'hidden',
-    marginTop: 8,
+    marginTop: 4,
     shadowColor: Colors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
@@ -449,22 +990,52 @@ const styles = StyleSheet.create({
   },
   submitButtonText: {
     ...Typography.labelMd,
-    fontSize: 15,
+    fontSize: 14.5,
     fontWeight: '600',
     color: '#ffffff',
+  },
+  toggleModeLink: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+  },
+  toggleModeText: {
+    ...Typography.bodySm,
+    fontSize: 12.5,
+    color: Colors.textSecondary,
+  },
+  toggleModeBold: {
+    fontWeight: '700',
+    color: Colors.primary,
   },
   encryptedBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingTop: Spacing.spaceMd,
+    paddingTop: 4,
   },
   encryptedBannerText: {
     ...Typography.labelSm,
-    fontSize: 12,
+    fontSize: 11.5,
     color: Colors.verifiedGreen,
     fontWeight: '600',
+  },
+  onboardingLinkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingTop: 10,
+  },
+  onboardingLinkText: {
+    ...Typography.labelSm,
+    fontSize: 12.5,
+    color: Colors.textSecondary,
+  },
+  onboardingLinkBold: {
+    fontWeight: '700',
+    color: Colors.primary,
   },
   helpdeskCard: {
     width: '100%',
@@ -521,5 +1092,155 @@ const styles = StyleSheet.create({
   certDot: {
     color: Colors.textSecondary,
     fontSize: 10,
+  },
+  chipOption: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: Radii.pill,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    marginRight: 6,
+  },
+  chipOptionSelected: {
+    backgroundColor: '#fef2f2',
+    borderColor: Colors.primary,
+  },
+  chipOptionText: {
+    fontSize: 11.5,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+  },
+  chipOptionTextSelected: {
+    color: Colors.primary,
+    fontWeight: '700',
+  },
+  gatedBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    borderRadius: Radii.lg,
+    padding: Spacing.spaceMd,
+    marginTop: Spacing.spaceSm,
+    marginBottom: Spacing.spaceSm,
+  },
+  gatedBannerTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#92400e',
+  },
+  gatedBannerDesc: {
+    fontSize: 11,
+    color: '#b45309',
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  avatarPickerSection: {
+    marginBottom: Spacing.margin,
+    backgroundColor: '#fffcfc',
+    borderRadius: Radii.card,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 29, 44, 0.15)',
+  },
+  recommendedTag: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: Colors.primary,
+    backgroundColor: 'rgba(139, 29, 44, 0.08)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  avatarPickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 8,
+  },
+  avatarContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    position: 'relative',
+    borderWidth: 2,
+    borderColor: Colors.primary,
+    backgroundColor: '#fbeeed',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarPreviewImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 30,
+  },
+  avatarPlaceholder: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarCameraBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
+  avatarPickerTextCol: {
+    flex: 1,
+  },
+  avatarPickerTitle: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  avatarPickerHint: {
+    fontSize: 10.5,
+    color: Colors.textSecondary,
+    marginTop: 2,
+    lineHeight: 14,
+  },
+  avatarActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 6,
+  },
+  avatarActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: Radii.pill,
+    backgroundColor: 'rgba(139, 29, 44, 0.08)',
+  },
+  avatarActionBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  avatarRemoveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingVertical: 3,
+    paddingHorizontal: 6,
+  },
+  avatarRemoveBtnText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Colors.danger,
   },
 });

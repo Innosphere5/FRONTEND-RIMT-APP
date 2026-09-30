@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,15 +7,55 @@ import {
   TouchableOpacity,
   Image,
   Alert,
+  Animated,
+  Easing,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Colors, Spacing, Typography, Radii, ImageAssets } from '../theme/tokens';
+import { Colors, Spacing, Typography, Radii, ImageAssets, FontFamilies } from '../theme/tokens';
 import Header from '../components/Header';
 import ShineEffect from '../components/ShineEffect';
+import ZoomCard from '../components/ZoomCard';
+import { useAuth } from '../context/AuthContext';
+import EditProfileScreen from './EditProfileScreen';
+import NoticeModal from '../components/NoticeModal';
 
-export default function ProfileScreen({ onNavigate }) {
+export default function ProfileScreen({ onNavigate, onSignOut }) {
+  const { currentStudent, signOut } = useAuth();
   const [detailsExpanded, setDetailsExpanded] = useState(true);
+  const [pulseAnim] = useState(() => new Animated.Value(0));
+  const [isEditing, setIsEditing] = useState(false);
+  const [notice, setNotice] = useState(null);
+
+  useEffect(() => {
+    const pulseLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 3200,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 0,
+          duration: 3200,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulseLoop.start();
+    return () => pulseLoop.stop();
+  }, [pulseAnim]);
+
+  const arrowNudge = pulseAnim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0, 3, 0],
+  });
+
+  if (isEditing) {
+    return <EditProfileScreen onBack={() => setIsEditing(false)} />;
+  }
 
   return (
     <View style={styles.container}>
@@ -23,7 +63,19 @@ export default function ProfileScreen({ onNavigate }) {
         title="Profile"
         eyebrow="RIMT ACADEMIC TRUST"
         onNotificationPress={() => Alert.alert('Notifications', 'Profile documents reviewed.')}
-        onProfilePress={() => Alert.alert('Scholar ID', 'RIMT/22/BTCSE/0417 · Harpreet Singh')}
+        avatarUrl={currentStudent?.avatar_url || ImageAssets.profileAvatarSecondary}
+        onProfilePress={() => setNotice({
+          title: 'Scholar ID',
+          message: 'Verified scholar record',
+          actionLabel: 'Done',
+          icon: 'badge',
+          tone: 'neutral',
+          details: [
+            { label: 'Full name', value: currentStudent?.name || 'Not provided' },
+            { label: 'Roll number', value: currentStudent?.roll_no || 'Not available' },
+            { label: 'Course', value: currentStudent?.course || 'Not selected' },
+          ],
+        })}
       />
 
       <ScrollView
@@ -40,7 +92,7 @@ export default function ProfileScreen({ onNavigate }) {
 
           <TouchableOpacity
             style={styles.editButton}
-            onPress={() => Alert.alert('Edit Profile', 'Edit request submitted to Registrar portal.')}
+            onPress={() => setIsEditing(true)}
             activeOpacity={0.7}
           >
             <MaterialIcons name="edit" size={14} color={Colors.secondary} />
@@ -48,68 +100,115 @@ export default function ProfileScreen({ onNavigate }) {
           </TouchableOpacity>
         </View>
 
-        {/* Scholar Identity Card */}
+        {/* Scholar Identity Card with Sweep & Zoom Effect */}
         <View style={styles.identityCardWrapper}>
-          <LinearGradient
-            colors={['#182b42', '#101e30', '#0d1826']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.identityCard}
-          >
-            {/* Crystalline Shimmer Sweep Animation */}
-            <ShineEffect
-              colors={[
-                'transparent',
-                'rgba(255, 255, 255, 0.02)',
-                'rgba(255, 255, 255, 0.22)',
-                'rgba(255, 255, 255, 0.6)',
-                'rgba(255, 255, 255, 0.22)',
-                'rgba(255, 255, 255, 0.02)',
-                'transparent',
-              ]}
-              duration={2700}
-              delay={2400}
-              angle="-20deg"
-            />
-
-            <View style={styles.identityHeader}>
-              <View style={styles.avatarWrapper}>
-                <Image
-                  source={{ uri: ImageAssets.studentAvatar }}
-                  style={styles.avatarImage}
-                />
-                <View style={styles.avatarCheckBadge}>
-                  <MaterialIcons name="check" size={12} color="#ffffff" />
-                </View>
-              </View>
-
-              <View style={styles.identityDetails}>
-                <Text style={styles.studentName}>Harpreet Singh</Text>
-                <View style={styles.enrollmentTag}>
-                  <Text style={styles.enrollmentText}>RIMT/22/BTCSE/0417</Text>
-                </View>
-                <Text style={styles.programText}>
-                  Computer Science &amp; Engineering · Batch 2022–26 · Section A
-                </Text>
-              </View>
-            </View>
-
-            {/* Profile Completion Bar */}
-            <TouchableOpacity
-              style={styles.completionBanner}
-              onPress={() => Alert.alert('Profile Completion', 'Complete document verification to achieve 100%.')}
-              activeOpacity={0.8}
+          <ZoomCard scaleTo={1.03}>
+            <LinearGradient
+              colors={['#182b42', '#101e30', '#0d1826']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.identityCard}
             >
-              <View style={styles.completionLeft}>
-                <MaterialIcons name="verified-user" size={18} color={Colors.pendingAmber} />
-                <Text style={styles.completionTitle}>Profile 85% complete</Text>
+              {currentStudent?.banner_url && (
+                <Image
+                  source={{ uri: currentStudent.banner_url }}
+                  style={styles.identityBannerImage}
+                  resizeMode="cover"
+                />
+              )}
+              {/* Ambient Breathing Security Aura */}
+              <Animated.View
+                style={[
+                  styles.ambientAura,
+                  {
+                    opacity: pulseAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.25, 0.65],
+                    }),
+                    transform: [
+                      {
+                        scale: pulseAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0.95, 1.15],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+                pointerEvents="none"
+              >
+                <LinearGradient
+                  colors={['rgba(56, 189, 248, 0.22)', 'rgba(99, 102, 241, 0.12)', 'transparent']}
+                  start={{ x: 0.8, y: 0 }}
+                  end={{ x: 0, y: 1 }}
+                  style={StyleSheet.absoluteFillObject}
+                />
+              </Animated.View>
+
+              {/* Delicate Holographic Specular Sheen (No blinding streaks) */}
+              <ShineEffect
+                colors={[
+                  'transparent',
+                  'rgba(255, 255, 255, 0.01)',
+                  'rgba(186, 215, 255, 0.08)',
+                  'rgba(255, 255, 255, 0.18)',
+                  'rgba(215, 235, 255, 0.24)',
+                  'rgba(255, 255, 255, 0.18)',
+                  'rgba(186, 215, 255, 0.08)',
+                  'rgba(255, 255, 255, 0.01)',
+                  'transparent',
+                ]}
+                duration={2400}
+                delay={3200}
+                angle="-22deg"
+                width={170}
+              />
+
+              <View style={styles.identityHeader}>
+                <View style={styles.avatarWrapper}>
+                  <Image
+                    source={{ uri: currentStudent?.avatar_url || ImageAssets.studentAvatar }}
+                    style={styles.avatarImage}
+                  />
+                  <View style={styles.avatarCheckBadge}>
+                    <MaterialIcons name="check" size={12} color="#ffffff" />
+                  </View>
+                </View>
+
+                <View style={styles.identityDetails}>
+                  <Text style={styles.studentName}>{currentStudent?.name || '---'}</Text>
+                  <View style={styles.enrollmentTag}>
+                    <Text style={styles.enrollmentText}>
+                      {currentStudent?.roll_no || '---'}
+                    </Text>
+                  </View>
+                  <Text style={styles.programText}>
+                    {currentStudent
+                      ? `${currentStudent?.course || '---'} · ${currentStudent?.batch ? `Batch ${currentStudent.batch}` : '---'}`
+                      : '--- · Batch ---'}
+                  </Text>
+                </View>
               </View>
-              <View style={styles.completionRight}>
-                <Text style={styles.finishText}>FINISH</Text>
-                <MaterialIcons name="chevron-right" size={16} color="#fef3c7" />
-              </View>
-            </TouchableOpacity>
-          </LinearGradient>
+
+              {/* Profile Completion Bar */}
+              <TouchableOpacity
+                style={styles.completionBanner}
+                onPress={() => Alert.alert('Profile Completion', 'Complete document verification to achieve 100%.')}
+                activeOpacity={0.8}
+              >
+                <View style={styles.completionLeft}>
+                  <MaterialIcons name="verified-user" size={18} color={Colors.pendingAmber} />
+                  <Text style={styles.completionTitle}>Profile 85% complete</Text>
+                </View>
+                <View style={styles.completionRight}>
+                  <Text style={styles.finishText}>FINISH</Text>
+                  <Animated.View style={{ transform: [{ translateX: arrowNudge }] }}>
+                    <MaterialIcons name="chevron-right" size={16} color="#fef3c7" />
+                  </Animated.View>
+                </View>
+              </TouchableOpacity>
+            </LinearGradient>
+          </ZoomCard>
         </View>
 
         {/* Academic Summary Section */}
@@ -122,61 +221,107 @@ export default function ProfileScreen({ onNavigate }) {
           <View style={styles.summaryGrid}>
             <View style={styles.summaryRow}>
               {/* Card 1: Semester */}
-              <View style={styles.summaryCard}>
-                <Text style={styles.summaryCardLabel}>Current semester</Text>
-                <View style={styles.summaryCardBottom}>
-                  <Text style={styles.summaryCardValue}>Semester 8</Text>
-                  <MaterialIcons name="school" size={18} color={Colors.secondary} />
-                </View>
-              </View>
+              <ZoomCard
+                containerStyle={styles.summaryCardShell}
+                style={[styles.summaryCard, styles.summarySemesterCard]}
+                scaleTo={1.035}
+              >
+                  <ShineEffect
+                    colors={['transparent', 'rgba(62, 97, 134, 0.02)', 'rgba(255, 255, 255, 0.48)', 'rgba(62, 97, 134, 0.08)', 'transparent']}
+                    responsive
+                    duration={1900}
+                    delay={2600}
+                    outputRange={[-120, 260]}
+                  />
+                  <Text style={styles.summaryCardLabel}>Current semester</Text>
+                  <View style={styles.summaryCardBottom}>
+                    <Text style={styles.summaryCardValue}>Semester 8</Text>
+                    <MaterialIcons name="school" size={18} color={Colors.secondary} />
+                  </View>
+              </ZoomCard>
 
               {/* Card 2: CGPA */}
-              <View style={styles.summaryCard}>
-                <Text style={styles.summaryCardLabel}>Cumulative CGPA</Text>
-                <View style={styles.summaryCardBottom}>
-                  <Text style={[styles.summaryCardValue, { color: Colors.primary }]}>
-                    8.84 <Text style={styles.cgpaMax}>/ 10.0</Text>
-                  </Text>
-                  <MaterialIcons name="grade" size={18} color={Colors.primary} />
-                </View>
-              </View>
+              <ZoomCard
+                containerStyle={styles.summaryCardShell}
+                style={[styles.summaryCard, styles.summaryCgpaCard]}
+                scaleTo={1.035}
+              >
+                  <ShineEffect
+                    colors={['transparent', 'rgba(163, 19, 33, 0.02)', 'rgba(255, 255, 255, 0.52)', 'rgba(163, 19, 33, 0.08)', 'transparent']}
+                    responsive
+                    duration={2050}
+                    delay={3100}
+                    outputRange={[-120, 260]}
+                  />
+                  <Text style={styles.summaryCardLabel}>Cumulative CGPA</Text>
+                  <View style={styles.summaryCardBottom}>
+                    <Text style={[styles.summaryCardValue, { color: Colors.primary }]}>
+                      8.84 <Text style={styles.cgpaMax}>/ 10.0</Text>
+                    </Text>
+                    <MaterialIcons name="grade" size={18} color={Colors.primary} />
+                  </View>
+              </ZoomCard>
             </View>
 
             <View style={[styles.summaryRow, { marginTop: 8 }]}>
               {/* Card 3: Attendance */}
-              <View style={styles.summaryCard}>
-                <Text style={styles.summaryCardLabel}>Overall Attendance</Text>
-                <View style={styles.summaryCardBottom}>
-                  <Text style={[styles.summaryCardValue, { color: Colors.verifiedGreen }]}>
-                    92.4%
-                  </Text>
-                  <MaterialIcons name="fact-check" size={18} color={Colors.verifiedGreen} />
-                </View>
-              </View>
+              <ZoomCard
+                containerStyle={styles.summaryCardShell}
+                style={[styles.summaryCard, styles.summaryAttendanceCard]}
+                scaleTo={1.035}
+              >
+                  <ShineEffect
+                    colors={['transparent', 'rgba(46, 125, 79, 0.02)', 'rgba(255, 255, 255, 0.52)', 'rgba(46, 125, 79, 0.08)', 'transparent']}
+                    responsive
+                    duration={1950}
+                    delay={3550}
+                    outputRange={[-120, 260]}
+                  />
+                  <Text style={styles.summaryCardLabel}>Overall Attendance</Text>
+                  <View style={styles.summaryCardBottom}>
+                    <Text style={[styles.summaryCardValue, { color: Colors.verifiedGreen }]}>
+                      92.4%
+                    </Text>
+                    <MaterialIcons name="fact-check" size={18} color={Colors.verifiedGreen} />
+                  </View>
+              </ZoomCard>
 
               {/* Card 4: Faculty Advisor */}
-              <View style={styles.summaryCard}>
-                <Text style={styles.summaryCardLabel}>Faculty Advisor</Text>
-                <View style={styles.summaryCardBottom}>
-                  <Text style={[styles.summaryCardValue, { fontSize: 13 }]} numberOfLines={1}>
-                    Dr. Gurpreet Kaur
-                  </Text>
-                  <MaterialIcons name="co-present" size={18} color={Colors.secondary} />
-                </View>
-              </View>
+              <ZoomCard
+                containerStyle={styles.summaryCardShell}
+                style={[styles.summaryCard, styles.summaryAdvisorCard]}
+                scaleTo={1.035}
+              >
+                  <ShineEffect
+                    colors={['transparent', 'rgba(88, 107, 134, 0.02)', 'rgba(255, 255, 255, 0.5)', 'rgba(88, 107, 134, 0.08)', 'transparent']}
+                    responsive
+                    duration={2100}
+                    delay={4000}
+                    outputRange={[-120, 260]}
+                  />
+                  <Text style={styles.summaryCardLabel}>Faculty Advisor</Text>
+                  <View style={styles.summaryCardBottom}>
+                    <Text style={[styles.summaryCardValue, { fontSize: 13 }]} numberOfLines={1}>
+                      Dr. Gurpreet Kaur
+                    </Text>
+                    <MaterialIcons name="co-present" size={18} color={Colors.secondary} />
+                  </View>
+              </ZoomCard>
             </View>
           </View>
         </View>
 
         {/* Contact & Personal Details Expandable Card */}
-        <View style={styles.detailsCardWrapper}>
+        <ZoomCard style={styles.detailsCardWrapper} scaleTo={1.025}>
           <TouchableOpacity
             style={styles.detailsCardHeader}
             onPress={() => setDetailsExpanded(!detailsExpanded)}
             activeOpacity={0.8}
           >
             <View style={styles.detailsHeaderLeft}>
-              <MaterialIcons name="badge" size={20} color={Colors.secondary} />
+              <View style={styles.detailsHeaderIcon}>
+                <MaterialIcons name="contact-emergency" size={20} color={Colors.secondary} />
+              </View>
               <Text style={styles.detailsHeaderTitle}>Contact &amp; Personal Details</Text>
             </View>
             <MaterialIcons
@@ -193,152 +338,80 @@ export default function ProfileScreen({ onNavigate }) {
                   <MaterialIcons name="phone" size={17} color={Colors.secondary} />
                   <Text style={styles.detailLabel}>Phone</Text>
                 </View>
-                <Text style={styles.detailValue}>+91 98765 43210</Text>
+                <Text style={styles.detailValue}>{currentStudent?.phone || 'Not provided'}</Text>
               </View>
 
-              <View style={styles.detailRow}>
-                <View style={styles.detailLabelRow}>
-                  <MaterialIcons name="alternate-email" size={17} color={Colors.secondary} />
-                  <Text style={styles.detailLabel}>Email</Text>
-                </View>
-                <Text style={styles.detailValue} numberOfLines={1}>
-                  harpreet.s@rimt.ac.in
-                </Text>
-              </View>
-
-              <View style={styles.grid2Col}>
-                <View style={styles.gridColCard}>
-                  <Text style={styles.detailLabel}>Date of Birth</Text>
-                  <Text style={styles.detailValueLarge}>14 Oct 2004</Text>
-                </View>
-                <View style={styles.gridColCard}>
-                  <Text style={styles.detailLabel}>Blood Group</Text>
-                  <Text style={styles.detailValueLarge}>B+</Text>
-                </View>
-              </View>
             </View>
           )}
-        </View>
+        </ZoomCard>
 
-        {/* Documents on File Section */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Documents on file</Text>
-            <Text style={styles.docCountMeta}>3 of 4 verified</Text>
-          </View>
-
-          {/* Aadhaar Card */}
-          <View style={styles.documentItem}>
-            <View style={styles.docItemLeft}>
-              <View style={styles.docIconBox}>
-                <MaterialIcons name="fingerprint" size={20} color={Colors.secondary} />
-              </View>
-              <View style={styles.docItemText}>
-                <Text style={styles.docItemTitle}>Aadhaar Card</Text>
-                <View style={styles.docVerifiedPill}>
-                  <View style={styles.greenDotSmall} />
-                  <Text style={styles.docVerifiedText}>Verified</Text>
-                </View>
-              </View>
-            </View>
-            <TouchableOpacity
-              style={styles.docViewBtn}
-              onPress={() => Alert.alert('Aadhaar Card', 'Viewing verified Aadhaar card snapshot.')}
-              activeOpacity={0.7}
-            >
-              <MaterialIcons name="visibility" size={18} color={Colors.secondary} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Admission Letter */}
-          <View style={styles.documentItem}>
-            <View style={styles.docItemLeft}>
-              <View style={styles.docIconBox}>
-                <MaterialIcons name="description" size={20} color={Colors.secondary} />
-              </View>
-              <View style={styles.docItemText}>
-                <Text style={styles.docItemTitle}>Admission Letter</Text>
-                <View style={styles.docVerifiedPill}>
-                  <View style={styles.greenDotSmall} />
-                  <Text style={styles.docVerifiedText}>Verified</Text>
-                </View>
-              </View>
-            </View>
-            <TouchableOpacity
-              style={styles.docViewBtn}
-              onPress={() => Alert.alert('Admission Letter', 'Viewing verified RIMT Admission letter.')}
-              activeOpacity={0.7}
-            >
-              <MaterialIcons name="visibility" size={18} color={Colors.secondary} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Semester 7 Fee Receipt */}
-          <View style={styles.documentItem}>
-            <View style={styles.docItemLeft}>
-              <View style={styles.docIconBox}>
-                <MaterialIcons name="receipt-long" size={20} color={Colors.secondary} />
-              </View>
-              <View style={styles.docItemText}>
-                <Text style={styles.docItemTitle}>Semester 7 Fee Receipt</Text>
-                <View style={styles.docVerifiedPill}>
-                  <View style={styles.greenDotSmall} />
-                  <Text style={styles.docVerifiedText}>Verified</Text>
-                </View>
-              </View>
-            </View>
-            <TouchableOpacity
-              style={styles.docViewBtn}
-              onPress={() => Alert.alert('Fee Receipt', 'Receipt verified with accounts department.')}
-              activeOpacity={0.7}
-            >
-              <MaterialIcons name="visibility" size={18} color={Colors.secondary} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Migration Certificate (Pending) */}
-          <View style={[styles.documentItem, styles.pendingDocItem]}>
-            <View style={styles.docItemLeft}>
-              <View style={[styles.docIconBox, { backgroundColor: 'rgba(254, 243, 199, 0.9)' }]}>
-                <MaterialIcons name="upload-file" size={20} color={Colors.pendingAmber} />
-              </View>
-              <View style={styles.docItemText}>
-                <Text style={styles.docItemTitle}>Migration Certificate</Text>
-                <View style={styles.docPendingPill}>
-                  <View style={styles.amberDotSmall} />
-                  <Text style={styles.docPendingText}>Pending</Text>
-                </View>
-              </View>
-            </View>
-            <TouchableOpacity
-              style={styles.docAddBtn}
-              onPress={() => Alert.alert('Upload Certificate', 'Upload dialog opened for Migration Certificate.')}
-              activeOpacity={0.85}
-            >
-              <MaterialIcons name="add" size={16} color="#ffffff" />
-              <Text style={styles.docAddBtnText}>Add</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Pinned Primary CTA */}
+        {/* Pinned Primary CTA - Glossy Crimson Action matching Projects "Add Project" */}
         <View style={styles.updateCtaWrapper}>
-          <TouchableOpacity
-            style={styles.updateButton}
-            onPress={() => Alert.alert('Update Profile', 'Scholar profile submitted for Registrar verification.')}
-            activeOpacity={0.85}
+          <ZoomCard
+            style={styles.updateButtonWrapper}
+            onPress={() => setNotice({
+              title: 'Update Profile',
+              message: 'Your current scholar details are ready for Registrar verification.',
+              actionLabel: 'Done',
+            })}
+            scaleTo={1.04}
           >
-            <MaterialIcons name="sync" size={20} color="#ffffff" />
-            <Text style={styles.updateButtonText}>Update profile</Text>
-          </TouchableOpacity>
+            <LinearGradient
+              colors={[Colors.primaryContainer, Colors.primary, Colors.crimsonPressed]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={styles.updateButtonGradient}
+            >
+              {/* Specular Top Gloss Highlight Line */}
+              <View style={styles.buttonGlossHighlight} />
+              <MaterialIcons name="sync" size={20} color="#ffffff" />
+              <Text style={styles.updateButtonText}>Update profile</Text>
+            </LinearGradient>
+          </ZoomCard>
           <Text style={styles.updateFootnote}>
             Last authenticated update: 12 Feb 2026 · Digital Registrar
           </Text>
+
+          {/* Sign Out / Lock Session Action */}
+          <TouchableOpacity
+            style={styles.signOutButton}
+            onPress={() => setNotice({
+              title: 'Lock Academic Portal',
+              message: 'Are you sure you want to sign out?',
+              actionLabel: 'Sign out',
+              secondaryLabel: 'Cancel',
+              icon: 'lock',
+              tone: 'neutral',
+              onAction: async () => {
+                setNotice(null);
+                await signOut();
+                onSignOut?.();
+                onNavigate?.('signin');
+              },
+            })}
+            activeOpacity={0.75}
+          >
+            <MaterialIcons name="logout" size={17} color={Colors.primary} />
+            <Text style={styles.signOutButtonText}>Sign Out from Scholar Gateway</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Space for bottom navigation */}
         <View style={{ height: 80 }} />
       </ScrollView>
+      <NoticeModal
+        visible={!!notice}
+        title={notice?.title}
+        message={notice?.message}
+        actionLabel={notice?.actionLabel || 'Understood'}
+        onAction={notice?.onAction || (() => setNotice(null))}
+        secondaryLabel={notice?.secondaryLabel}
+        onSecondaryAction={() => setNotice(null)}
+        onDismiss={() => setNotice(null)}
+        icon={notice?.icon || 'sync'}
+        tone={notice?.tone || 'brand'}
+        details={notice?.details}
+      />
     </View>
   );
 }
@@ -408,7 +481,7 @@ const styles = StyleSheet.create({
     borderRadius: Radii.xl,
     padding: Spacing.spaceMd,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: 'rgba(255, 255, 255, 0.16)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.35,
@@ -416,6 +489,23 @@ const styles = StyleSheet.create({
     elevation: 6,
     overflow: 'hidden',
     position: 'relative',
+  },
+  identityBannerImage: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    opacity: 0.28,
+  },
+  ambientAura: {
+    position: 'absolute',
+    top: -50,
+    right: -40,
+    width: 220,
+    height: 180,
+    borderRadius: 110,
+    overflow: 'hidden',
   },
   identityHeader: {
     flexDirection: 'row',
@@ -450,32 +540,35 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   studentName: {
-    ...Typography.headlineMd,
-    fontSize: 19,
+    fontFamily: FontFamilies.sansMedium,
+    fontSize: 20,
     fontWeight: '700',
+    letterSpacing: -0.3,
     color: '#ffffff',
   },
   enrollmentTag: {
     alignSelf: 'flex-start',
     backgroundColor: 'rgba(255, 255, 255, 0.12)',
     paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingVertical: 2.5,
     borderRadius: Radii.xs,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.18)',
+    borderColor: 'rgba(255, 255, 255, 0.22)',
     marginTop: 4,
     marginBottom: 4,
   },
   enrollmentText: {
     ...Typography.codeXs,
     fontSize: 11,
-    color: 'rgb(203, 213, 225)',
+    fontWeight: '600',
+    color: '#E2E8F0',
+    letterSpacing: 0.4,
   },
   programText: {
     ...Typography.bodyMd,
-    fontSize: 12,
-    color: 'rgb(203, 213, 225)',
-    lineHeight: 16,
+    fontSize: 12.5,
+    color: '#CBD5E1',
+    lineHeight: 16.5,
   },
   completionBanner: {
     flexDirection: 'row',
@@ -540,6 +633,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   summaryCard: {
+    width: '100%',
     flex: 1,
     height: 84,
     backgroundColor: '#ffffff',
@@ -548,11 +642,34 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
     justifyContent: 'space-between',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  summaryCardShell: {
+    flex: 1,
+    minWidth: 0,
+    borderRadius: Radii.lg,
     shadowColor: '#12263D',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  summarySemesterCard: {
+    backgroundColor: 'rgba(239, 246, 255, 0.82)',
+    borderColor: 'rgba(62, 97, 134, 0.22)',
+  },
+  summaryCgpaCard: {
+    backgroundColor: 'rgba(255, 241, 242, 0.76)',
+    borderColor: 'rgba(163, 19, 33, 0.2)',
+  },
+  summaryAttendanceCard: {
+    backgroundColor: 'rgba(240, 253, 244, 0.82)',
+    borderColor: 'rgba(46, 125, 79, 0.22)',
+  },
+  summaryAdvisorCard: {
+    backgroundColor: 'rgba(245, 247, 250, 0.96)',
+    borderColor: 'rgba(88, 107, 134, 0.24)',
   },
   summaryCardLabel: {
     ...Typography.labelSm,
@@ -594,6 +711,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  detailsHeaderIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: Radii.md,
+    backgroundColor: 'rgba(62, 97, 134, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   detailsHeaderTitle: {
     ...Typography.headlineSm,
@@ -776,25 +901,38 @@ const styles = StyleSheet.create({
     marginHorizontal: Spacing.margin,
     marginTop: Spacing.spaceLg,
   },
-  updateButton: {
-    height: 48,
+  updateButtonWrapper: {
+    height: 50,
     borderRadius: Radii.md,
-    backgroundColor: Colors.primary,
+    overflow: 'hidden',
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  updateButtonGradient: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 3,
+    position: 'relative',
+  },
+  buttonGlossHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1.5,
+    backgroundColor: 'rgba(255, 255, 255, 0.45)',
   },
   updateButtonText: {
     ...Typography.labelMd,
-    fontSize: 14.5,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
     color: '#ffffff',
+    letterSpacing: 0.2,
   },
   updateFootnote: {
     ...Typography.codeXs,
@@ -802,5 +940,24 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center',
     marginTop: 8,
+  },
+  signOutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: Radii.md,
+    backgroundColor: 'rgba(163, 19, 33, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(163, 19, 33, 0.2)',
+  },
+  signOutButtonText: {
+    ...Typography.labelMd,
+    fontSize: 13,
+    color: Colors.primary,
+    fontWeight: '600',
   },
 });

@@ -1,18 +1,93 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
   Alert,
+  TouchableOpacity,
 } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
+import { MaterialIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, Radii } from '../theme/tokens';
 import Header from '../components/Header';
 import DocumentCard from '../components/DocumentCard';
+import ZoomCard from '../components/ZoomCard';
+import ViewToggle from '../components/ViewToggle';
+import UploadSuccessModal from '../components/UploadSuccessModal';
+import DocumentDetailModal from '../components/DocumentDetailModal';
+import { useAuth } from '../context/AuthContext';
+import {
+  listStudentDocuments,
+  SUPPORTED_DOCUMENT_TYPES,
+  toDocumentCardProps,
+  uploadStudentDocument,
+  deleteStudentDocument,
+} from '../services/documentService';
+import {
+  downloadDocumentToDevice,
+} from '../utils/documentViewer';
 
 export default function CredentialsScreen({ onNavigate }) {
+  const { currentStudent } = useAuth();
   const [activeSegment, setActiveSegment] = useState('all');
+  const [viewMode, setViewMode] = useState('list');
+  const [documents, setDocuments] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isUploading, setIsUploading] = useState(false);
+  const [selectedDocument, setSelectedDocument] = useState(null);
+  const [justUploadedDocument, setJustUploadedDocument] = useState(null);
+  const [isSuccessModalVisible, setIsSuccessModalVisible] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    listStudentDocuments(currentStudent?.roll_no).then((result) => {
+      if (isMounted) {
+        setDocuments(result.documents || []);
+        setIsLoading(false);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [currentStudent?.roll_no]);
+
+  const handleUpload = async () => {
+    if (!currentStudent?.roll_no) {
+      Alert.alert('Sign in required', 'Sign in before uploading a document or image.');
+      return;
+    }
+
+    const selection = await DocumentPicker.getDocumentAsync({
+      type: SUPPORTED_DOCUMENT_TYPES,
+      copyToCacheDirectory: true,
+      multiple: false,
+    });
+    if (selection.canceled || !selection.assets?.[0]) return;
+
+    setIsUploading(true);
+    const result = await uploadStudentDocument({
+      asset: selection.assets[0],
+      rollNo: currentStudent.roll_no,
+    });
+    setIsUploading(false);
+
+    if (!result.success) {
+      Alert.alert('Upload failed', result.error);
+      return;
+    }
+
+    setDocuments((current) => [result.document, ...current]);
+    setJustUploadedDocument(result.document);
+    setIsSuccessModalVisible(true);
+  };
+
+  const filteredDocuments = documents.filter((document) => {
+    if (activeSegment === 'all') return true;
+    return activeSegment === 'pdf'
+      ? document.format === 'pdf' || document.mime_type === 'application/pdf'
+      : document.format === 'doc' || document.format === 'docx';
+  });
 
   return (
     <View style={styles.container}>
@@ -30,23 +105,41 @@ export default function CredentialsScreen({ onNavigate }) {
       >
         <View style={styles.titleSection}>
           <Text style={styles.eyebrow}>Cryptographic Credential Vault</Text>
-          <Text style={styles.heading}>Institutional Certifications</Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.heading}>Institutional Certifications</Text>
+            {/* List/Grid Toggle — Mega Update §4.3 */}
+            <ViewToggle mode={viewMode} onChange={setViewMode} />
+          </View>
           <Text style={styles.subtext}>
             Tamper-proof, digitally signed academic records validated on the RIMT institutional ledger.
           </Text>
+          <TouchableOpacity
+            style={styles.uploadButton}
+            onPress={handleUpload}
+            disabled={isUploading}
+            activeOpacity={0.82}
+            accessibilityRole="button"
+            accessibilityLabel="Upload document or image"
+          >
+            <MaterialIcons name="cloud-upload" size={18} color="#ffffff" />
+            <Text style={styles.uploadButtonText}>
+              {isUploading ? 'Uploading...' : 'Upload document or image'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Filter Segment */}
+        {/* Filter Segment — zoom on hover/tap (Mega Update §4.3) */}
         <View style={styles.segmentRow}>
           {[
-            { id: 'all', label: 'All Records' },
-            { id: 'degrees', label: 'Degrees (3)' },
-            { id: 'transcripts', label: 'Transcripts' },
+            { id: 'all', label: 'All Documents' },
+            { id: 'pdf', label: 'PDF' },
+            { id: 'word', label: 'Word Files' },
           ].map((seg) => (
-            <TouchableOpacity
+            <ZoomCard
               key={seg.id}
               style={[styles.segmentBtn, activeSegment === seg.id && styles.segmentBtnActive]}
               onPress={() => setActiveSegment(seg.id)}
+              scaleTo={1.08}
             >
               <Text
                 style={[
@@ -56,71 +149,50 @@ export default function CredentialsScreen({ onNavigate }) {
               >
                 {seg.label}
               </Text>
-            </TouchableOpacity>
+            </ZoomCard>
           ))}
         </View>
 
         {/* Credential Cards */}
-        <View style={styles.cardList}>
-          <DocumentCard
-            icon="military-tech"
-            iconColor={Colors.primary}
-            iconBgColor="rgba(163, 19, 33, 0.08)"
-            statusBadge="Verified"
-            statusBadgeColor={Colors.verifiedGreen}
-            statusBadgeBg="rgba(46, 125, 79, 0.1)"
-            fileMeta="PDF · 2.4 MB · SHA-256 Validated"
-            title="Bachelor of Technology (CSE)"
-            verificationLabel="Digitally Signed by Vice-Chancellor"
-            verificationIcon="lock"
-            onDownloadPress={() => Alert.alert('Download', 'Downloading Bachelor of Technology degree…')}
-          />
-
-          <DocumentCard
-            icon="description"
-            iconColor={Colors.secondary}
-            iconBgColor="rgba(62, 97, 134, 0.08)"
-            statusBadge="Official"
-            statusBadgeColor={Colors.secondary}
-            statusBadgeBg={Colors.surfaceContainerHigh}
-            fileMeta="PDF · 1.1 MB · 8 Semesters"
-            title="Cumulative Grade Transcript (Sem 1-7)"
-            verificationLabel="Certified by Controller of Examinations"
-            verificationIcon="verified"
-            onDownloadPress={() => Alert.alert('Download', 'Downloading Cumulative Grade Transcript…')}
-          />
-
-          <DocumentCard
-            icon="card-membership"
-            iconColor={Colors.tertiary}
-            iconBgColor="rgba(88, 107, 134, 0.1)"
-            statusBadge="Verified"
-            statusBadgeColor={Colors.verifiedGreen}
-            statusBadgeBg="rgba(46, 125, 79, 0.1)"
-            fileMeta="PDF · 850 KB · Merit Honor"
-            title="Dean's Academic Excellence Honor Roll"
-            verificationLabel="Registrar Seal Validated"
-            verificationIcon="verified-user"
-            onDownloadPress={() => Alert.alert('Download', 'Downloading Honor Roll Certificate…')}
-          />
-
-          <DocumentCard
-            icon="workspace-premium"
-            iconColor={Colors.primary}
-            iconBgColor="rgba(163, 19, 33, 0.08)"
-            statusBadge="Issued"
-            statusBadgeColor={Colors.secondary}
-            statusBadgeBg={Colors.surfaceContainerHigh}
-            fileMeta="PDF · 620 KB · Lab Work"
-            title="Advanced Data Structures Lab Certification"
-            verificationLabel="Department of Computer Science"
-            verificationIcon="verified"
-            onDownloadPress={() => Alert.alert('Download', 'Downloading Lab Certificate…')}
-          />
+        <View style={[styles.cardList, viewMode === 'grid' && styles.gridCardList]}>
+          {isLoading && <Text style={styles.emptyText}>Loading your documents...</Text>}
+          {!isLoading && filteredDocuments.length === 0 && (
+            <Text style={styles.emptyText}>No matching uploaded documents found.</Text>
+          )}
+          {!isLoading && filteredDocuments.map((document) => (
+            <DocumentCard
+              key={document.id || document.cloudinary_public_id}
+              {...toDocumentCardProps(document)}
+              viewMode={viewMode}
+              onPress={() => setSelectedDocument(document)}
+              onDownloadPress={() => downloadDocumentToDevice(document)}
+            />
+          ))}
         </View>
 
         <View style={{ height: 80 }} />
       </ScrollView>
+
+      {/* Upload Success Modal */}
+      <UploadSuccessModal
+        visible={isSuccessModalVisible}
+        document={justUploadedDocument}
+        onClose={() => setIsSuccessModalVisible(false)}
+        onViewDocument={(doc) => setSelectedDocument(doc)}
+        onDownloadDocument={(doc) => downloadDocumentToDevice(doc)}
+      />
+
+      {/* Document Detail Modal */}
+      <DocumentDetailModal
+        visible={!!selectedDocument}
+        document={selectedDocument}
+        onClose={() => setSelectedDocument(null)}
+        onDelete={async (doc) => {
+          await deleteStudentDocument({ documentId: doc.id, rollNo: currentStudent.roll_no });
+          setDocuments((cur) => cur.filter((d) => d.id !== doc.id && d.cloudinary_public_id !== doc.cloudinary_public_id));
+          setSelectedDocument(null);
+        }}
+      />
     </View>
   );
 }
@@ -141,6 +213,11 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.spaceMd,
     paddingBottom: Spacing.spaceSm,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   eyebrow: {
     ...Typography.eyebrow,
     color: Colors.textSecondary,
@@ -152,6 +229,8 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: Colors.textPrimary,
+    flex: 1,
+    marginRight: 8,
   },
   subtext: {
     ...Typography.bodyMd,
@@ -159,6 +238,22 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     lineHeight: 18,
     marginTop: 4,
+  },
+  uploadButton: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: Spacing.spaceSm,
+    paddingHorizontal: Spacing.spaceMd,
+    paddingVertical: 10,
+    borderRadius: Radii.full,
+    backgroundColor: Colors.primary,
+  },
+  uploadButtonText: {
+    ...Typography.labelSm,
+    color: '#ffffff',
+    fontWeight: '700',
   },
   segmentRow: {
     flexDirection: 'row',
@@ -192,5 +287,16 @@ const styles = StyleSheet.create({
   },
   cardList: {
     paddingHorizontal: Spacing.margin,
+  },
+  gridCardList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  emptyText: {
+    ...Typography.bodyMd,
+    paddingHorizontal: Spacing.margin,
+    paddingVertical: Spacing.spaceLg,
+    color: Colors.textSecondary,
   },
 });

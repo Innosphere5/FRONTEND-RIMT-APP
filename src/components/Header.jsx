@@ -1,7 +1,8 @@
 import React from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, StyleSheet, Image, Platform } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Typography, ImageAssets, Radii } from '../theme/tokens';
+import ZoomCard from './ZoomCard';
 
 export default function Header({
   title = 'Overview',
@@ -12,7 +13,12 @@ export default function Header({
   avatarUrl = ImageAssets.profileAvatarSecondary,
 }) {
   return (
-    <View style={styles.container}>
+    <ZoomCard
+      style={styles.container}
+      scaleTo={1.03}
+      raiseOnScale={false}
+      disabled={!onNotificationPress && !onProfilePress}
+    >
       <View style={styles.leftSection}>
         <Image
           source={{ uri: ImageAssets.universityLogoAlt }}
@@ -26,29 +32,31 @@ export default function Header({
       </View>
 
       <View style={styles.rightSection}>
-        <TouchableOpacity
+        <ZoomCard
           style={styles.iconButton}
           onPress={onNotificationPress}
-          activeOpacity={0.7}
+          scaleTo={1.20}
           accessibilityLabel="Notifications"
+          accessibilityRole="button"
         >
           <MaterialIcons name="notifications-none" size={24} color={Colors.secondary} />
           {hasUnreadNotifications && <View style={styles.notificationDot} />}
-        </TouchableOpacity>
+        </ZoomCard>
 
-        <TouchableOpacity
+        <ZoomCard
           style={styles.avatarButton}
           onPress={onProfilePress}
-          activeOpacity={0.8}
+          scaleTo={1.20}
           accessibilityLabel="Open profile"
+          accessibilityRole="button"
         >
           <Image
             source={{ uri: avatarUrl }}
             style={styles.avatar}
           />
-        </TouchableOpacity>
+        </ZoomCard>
       </View>
-    </View>
+    </ZoomCard>
   );
 }
 

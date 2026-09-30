@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -11,16 +11,45 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Colors, Spacing, Typography, Radii, ImageAssets } from '../theme/tokens';
+import { Colors, Spacing, Typography, Radii, ImageAssets, FontFamilies } from '../theme/tokens';
 import Header from '../components/Header';
 import MetricCard from '../components/MetricCard';
 import ActionTile from '../components/ActionTile';
 import DocumentCard from '../components/DocumentCard';
 import ShineEffect from '../components/ShineEffect';
+import ZoomCard from '../components/ZoomCard';
+import { useAuth } from '../context/AuthContext';
+import { listStudentDocuments, toDocumentCardProps } from '../services/documentService';
 
 export default function HomeScreen({ onNavigate }) {
+  const { currentStudent } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [activityCleared, setActivityCleared] = useState(false);
+  const [documents, setDocuments] = useState([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    listStudentDocuments(currentStudent?.roll_no).then((result) => {
+      if (isMounted) setDocuments(result.documents || []);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [currentStudent?.roll_no]);
+
+  const fullName = currentStudent?.name?.trim() || 'Scholar';
+  const initials = currentStudent?.name
+    ? currentStudent.name
+        .split(' ')
+        .filter(Boolean)
+        .map((n) => n[0])
+        .join('')
+        .slice(0, 2)
+        .toUpperCase()
+    : 'RIMT';
+  const scholarDegree = currentStudent
+    ? `${currentStudent.course || '---'} · ${currentStudent.batch ? `Batch ${currentStudent.batch}` : '---'} · ${currentStudent.roll_no || '---'}`
+    : '--- · Batch --- · ---';
 
   const initialActivities = [
     {
@@ -60,6 +89,7 @@ export default function HomeScreen({ onNavigate }) {
       <Header
         title="Overview"
         eyebrow="RIMT ACADEMIC TRUST"
+        avatarUrl={currentStudent?.avatar_url || ImageAssets.profileAvatarSecondary}
         onNotificationPress={() => Alert.alert('Notifications', 'You have 1 new announcement from the Registrar.')}
         onProfilePress={() => onNavigate?.('profile')}
       />
@@ -69,98 +99,106 @@ export default function HomeScreen({ onNavigate }) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Student Greeting Luxury Header */}
+        {/* Student Greeting Luxury Header with Sweep & Zoom Effect */}
         <View style={styles.greetingOuterWrapper}>
-          <LinearGradient
-            colors={['#101218', '#1a1614', '#201a12']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.greetingCard}
+          <ZoomCard
+            onPress={() => onNavigate?.('profile')}
+            scaleTo={1.03}
           >
-            {/* Ambient Gold Glows */}
-            <View style={styles.goldAura} />
+            <LinearGradient
+              colors={['#101218', '#1a1614', '#201a12']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.greetingCard}
+            >
+              {/* Ambient Gold Glows */}
+              <View style={styles.goldAura} />
 
-            {/* Shiny Shimmer Animation Sweep */}
-            <ShineEffect
-              colors={[
-                'transparent',
-                'rgba(255, 255, 255, 0.02)',
-                'rgba(255, 235, 170, 0.3)',
-                'rgba(255, 255, 255, 0.65)',
-                'rgba(255, 235, 170, 0.3)',
-                'rgba(255, 255, 255, 0.02)',
-                'transparent',
-              ]}
-              duration={2400}
-              delay={2200}
-              angle="-22deg"
-            />
+              {/* Shiny Shimmer Animation Sweep */}
+              <ShineEffect
+                colors={[
+                  'transparent',
+                  'rgba(255, 255, 255, 0.01)',
+                  'rgba(253, 230, 138, 0.12)',
+                  'rgba(255, 255, 255, 0.20)',
+                  'rgba(253, 230, 138, 0.12)',
+                  'rgba(255, 255, 255, 0.01)',
+                  'transparent',
+                ]}
+                duration={2400}
+                delay={3200}
+                angle="-22deg"
+                width={170}
+              />
 
-            <View style={styles.greetingContentRow}>
-              {/* Student Avatar with HK Badge */}
-              <TouchableOpacity
-                style={styles.avatarContainer}
-                onPress={() => onNavigate?.('profile')}
-                activeOpacity={0.85}
-              >
-                <Image
-                  source={{ uri: ImageAssets.studentAvatar }}
-                  style={styles.studentAvatar}
-                />
-                <View style={styles.hkBadge}>
-                  <Text style={styles.hkBadgeText}>HK</Text>
+              <View style={styles.greetingContentRow}>
+                {/* Student Avatar with Initials Badge */}
+                <View style={styles.avatarContainer}>
+                  <Image
+                    source={{ uri: currentStudent?.avatar_url || ImageAssets.studentAvatar }}
+                    style={styles.studentAvatar}
+                  />
+                  <View style={styles.hkBadge}>
+                    <Text style={styles.hkBadgeText}>{initials}</Text>
+                  </View>
                 </View>
-              </TouchableOpacity>
 
-              {/* Student Info */}
-              <View style={styles.greetingTextColumn}>
-                <View style={styles.nameRow}>
+                {/* Student Info */}
+                <View style={styles.greetingTextColumn}>
+                  <View style={styles.nameRow}>
+                    <Text style={styles.greetingName} numberOfLines={1}>Good morning</Text>
+                    <Text style={styles.sparkleText}>✨</Text>
+                  </View>
                   <Text
-                    style={styles.greetingName}
-                    numberOfLines={1}
+                    style={styles.greetingFullName}
+                    numberOfLines={2}
                     adjustsFontSizeToFit
-                    minimumFontScale={0.8}
+                    minimumFontScale={0.82}
                   >
-                    Good morning, Harpreet
+                    {fullName}
                   </Text>
-                  <Text style={styles.sparkleText}>✨</Text>
+                  <Text style={styles.greetingDegree} numberOfLines={2}>
+                    {scholarDegree}
+                  </Text>
                 </View>
-                <Text style={styles.greetingDegree} numberOfLines={1}>
-                  B.Tech CSE · Batch 2022–26 · Sem 8
-                </Text>
-              </View>
 
-              {/* Verified Shield Icon Badge */}
-              <View style={styles.shieldBadge}>
-                <MaterialIcons name="verified-user" size={20} color="#6ee7b7" />
+                {/* Verified Shield Icon Badge */}
+                <View style={styles.shieldBadge}>
+                  <MaterialIcons name="verified-user" size={20} color="#6ee7b7" />
+                </View>
               </View>
-            </View>
-          </LinearGradient>
+            </LinearGradient>
+          </ZoomCard>
         </View>
 
-        {/* Search & Quick Filter Field */}
-        <View style={styles.searchContainer}>
-          <MaterialIcons
-            name="search"
-            size={20}
-            color={Colors.textSecondary}
-            style={styles.searchLeadingIcon}
-          />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search documents and projects"
-            placeholderTextColor={Colors.neutralGray}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-          <TouchableOpacity
-            style={styles.filterButton}
-            onPress={() => Alert.alert('Filters', 'Document and Project filter options opened.')}
-            activeOpacity={0.7}
-          >
-            <MaterialIcons name="tune" size={20} color={Colors.textSecondary} />
-          </TouchableOpacity>
-        </View>
+        {/* Search & Quick Filter Field — zoom on hover/press (Mega Update §4.2) */}
+        <ZoomCard
+          scaleTo={1.05}
+          containerStyle={styles.searchZoomWrapper}
+        >
+          <View style={styles.searchContainer}>
+            <MaterialIcons
+              name="search"
+              size={20}
+              color={Colors.textSecondary}
+              style={styles.searchLeadingIcon}
+            />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search documents and projects"
+              placeholderTextColor={Colors.neutralGray}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            <TouchableOpacity
+              style={styles.filterButton}
+              onPress={() => Alert.alert('Filters', 'Document and Project filter options opened.')}
+              activeOpacity={0.7}
+            >
+              <MaterialIcons name="tune" size={20} color={Colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+        </ZoomCard>
 
         {/* Academic Overview Section (2x2 Metric Grid) */}
         <View style={styles.section}>
@@ -196,7 +234,7 @@ export default function HomeScreen({ onNavigate }) {
                 badgeBgColor={Colors.surfaceContainerHigh}
                 badgeTextColor={Colors.secondary}
                 value="7"
-                label="Courses & Workshops"
+                label="Courses"
                 cardBg="rgba(239, 246, 255, 0.5)"
                 borderColor="rgba(209, 228, 255, 0.8)"
               />
@@ -332,7 +370,24 @@ export default function HomeScreen({ onNavigate }) {
                 onPress={() => Alert.alert('Placement', 'Campus placement drive schedule and opportunities.')}
               />
               <View style={{ width: Spacing.spaceSm }} />
-              <View style={{ flex: 1 }} />
+              <ActionTile
+                icon="lock-outline"
+                iconColor={Colors.primary}
+                iconBgColor="rgba(163, 19, 33, 0.08)"
+                title="Lock Gateway"
+                subtitle="Sign Out"
+                onPress={() => {
+                  Alert.alert(
+                    'Lock Session',
+                    'Would you like to lock your session or view the onboarding tour?',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Onboarding Tour', onPress: () => onNavigate?.('onboarding') },
+                      { text: 'Sign Out', style: 'destructive', onPress: () => onNavigate?.('signin') },
+                    ]
+                  );
+                }}
+              />
             </View>
           </View>
         </View>
@@ -353,42 +408,26 @@ export default function HomeScreen({ onNavigate }) {
             </TouchableOpacity>
           </View>
 
-          <DocumentCard
-            icon="workspace-premium"
-            iconColor={Colors.primary}
-            iconBgColor="rgba(163, 19, 33, 0.08)"
-            statusBadge="Verified"
-            statusBadgeColor={Colors.verifiedGreen}
-            statusBadgeBg="rgba(46, 125, 79, 0.1)"
-            fileMeta="PDF · 2.4 MB"
-            title="Bachelor of Technology (CSE)"
-            verificationLabel="Digitally Signed"
-            verificationIcon="lock"
-            onDownloadPress={() => Alert.alert('Download', 'Downloading Bachelor of Technology (CSE) degree…')}
-            onPress={() => onNavigate?.('credentials')}
-          />
-
-          <DocumentCard
-            icon="description"
-            iconColor={Colors.secondary}
-            iconBgColor="rgba(62, 97, 134, 0.08)"
-            statusBadge="Official"
-            statusBadgeColor={Colors.secondary}
-            statusBadgeBg={Colors.surfaceContainerHigh}
-            fileMeta="PDF · 1.1 MB"
-            title="Cumulative Grade Transcript (Sem 1-7)"
-            verificationLabel="Certified by Registrar"
-            verificationIcon="verified"
-            onDownloadPress={() => Alert.alert('Download', 'Downloading Cumulative Grade Transcript…')}
-            onPress={() => onNavigate?.('credentials')}
-          />
+          {documents.slice(0, 4).map((document) => (
+            <DocumentCard
+              key={document.id || document.cloudinary_public_id}
+              {...toDocumentCardProps(document)}
+              onDownloadPress={() => onNavigate?.('downloads')}
+              onPress={() => onNavigate?.('credentials')}
+            />
+          ))}
+          {documents.length === 0 && (
+            <Text style={styles.emptyDocumentsText}>
+              No documents uploaded yet. Upload your first document from Downloads.
+            </Text>
+          )}
         </View>
 
         {/* Convocation Promo Banner */}
-        <TouchableOpacity
+        <ZoomCard
           style={styles.promoBanner}
           onPress={() => Alert.alert('Convocation 2025', 'Registration for Degree Concurrence Ceremony is confirmed.')}
-          activeOpacity={0.85}
+          scaleTo={1.035}
         >
           <LinearGradient
             colors={['rgba(235, 239, 245, 0.95)', 'rgba(220, 226, 235, 0.85)', 'rgba(208, 216, 228, 0.9)']}
@@ -409,7 +448,7 @@ export default function HomeScreen({ onNavigate }) {
               <MaterialIcons name="arrow-forward" size={20} color={Colors.primary} />
             </View>
           </LinearGradient>
-        </TouchableOpacity>
+        </ZoomCard>
 
         {/* Recent Activity Audit Section */}
         <View style={styles.section}>
@@ -433,12 +472,10 @@ export default function HomeScreen({ onNavigate }) {
               </View>
             ) : (
               initialActivities.map((act, index) => (
-                <View
+                <ZoomCard
                   key={act.id}
-                  style={[
-                    styles.activityRow,
-                    index < initialActivities.length - 1 && styles.activityRowDivider,
-                  ]}
+                  style={[styles.activityRow, index < initialActivities.length - 1 && styles.activityRowDivider]}
+                  scaleTo={1.025}
                 >
                   <View style={[styles.activityIconBox, { backgroundColor: act.iconBg }]}>
                     <MaterialIcons name={act.icon} size={18} color={act.iconColor} />
@@ -452,7 +489,7 @@ export default function HomeScreen({ onNavigate }) {
                     </View>
                   </View>
                   <MaterialIcons name={act.statusIcon} size={18} color={Colors.textSecondary} />
-                </View>
+                </ZoomCard>
               ))
             )}
           </View>
@@ -481,6 +518,11 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.spaceMd,
   },
   greetingCard: {
+      emptyDocumentsText: {
+        ...Typography.bodyMd,
+        color: Colors.textSecondary,
+        marginTop: Spacing.spaceSm,
+      },
     minHeight: 88,
     borderRadius: Radii.xl,
     padding: Spacing.spaceMd,
@@ -550,10 +592,18 @@ const styles = StyleSheet.create({
   },
   greetingName: {
     ...Typography.headlineSm,
-    fontSize: 17,
+    fontSize: 13,
     fontWeight: '700',
     color: '#ffffff',
+  },
+  greetingFullName: {
+    fontFamily: FontFamilies.sansMedium,
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '800',
+    color: '#ffffff',
     flexShrink: 1,
+    marginTop: 1,
   },
   sparkleText: {
     fontSize: 14,
@@ -561,7 +611,8 @@ const styles = StyleSheet.create({
   greetingDegree: {
     ...Typography.bodyMd,
     color: 'rgb(230, 207, 156)',
-    fontSize: 12.5,
+    fontSize: 11.5,
+    lineHeight: 15,
     marginTop: 2,
   },
   shieldBadge: {
@@ -574,14 +625,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  searchZoomWrapper: {
+    marginHorizontal: Spacing.margin,
+    marginTop: Spacing.spaceMd,
+  },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     height: 48,
     backgroundColor: '#ffffff',
     borderRadius: Radii.lg,
-    marginHorizontal: Spacing.margin,
-    marginTop: Spacing.spaceMd,
     paddingHorizontal: 12,
     borderWidth: 1,
     borderColor: Colors.border,

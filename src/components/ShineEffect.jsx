@@ -5,18 +5,22 @@ import { LinearGradient } from 'expo-linear-gradient';
 export default function ShineEffect({
   colors = [
     'transparent',
-    'rgba(255, 255, 255, 0.03)',
-    'rgba(255, 235, 170, 0.25)',
-    'rgba(255, 255, 255, 0.5)',
-    'rgba(255, 235, 170, 0.25)',
-    'rgba(255, 255, 255, 0.03)',
+    'rgba(255, 255, 255, 0.01)',
+    'rgba(186, 215, 255, 0.08)',
+    'rgba(255, 255, 255, 0.20)',
+    'rgba(215, 235, 255, 0.12)',
+    'rgba(255, 255, 255, 0.01)',
     'transparent',
   ],
   duration = 2400,
-  delay = 2000,
+  delay = 3000,
   angle = '-22deg',
+  width = 160,
+  outputRange = [-320, 540],
+  responsive = false,
 }) {
   const [animatedValue] = useState(() => new Animated.Value(0));
+  const [containerWidth, setContainerWidth] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -27,7 +31,7 @@ export default function ShineEffect({
         Animated.timing(animatedValue, {
           toValue: 1,
           duration: duration,
-          easing: Easing.bezier(0.4, 0.0, 0.2, 1),
+          easing: Easing.bezier(0.22, 1, 0.36, 1),
           useNativeDriver: true,
         }),
         Animated.delay(delay),
@@ -45,17 +49,30 @@ export default function ShineEffect({
     };
   }, [animatedValue, duration, delay]);
 
+  const sweepWidth = responsive && containerWidth ? containerWidth * 0.62 : width;
+  const responsiveRange = responsive && containerWidth
+    ? [-sweepWidth, containerWidth + sweepWidth]
+    : outputRange;
   const translateX = animatedValue.interpolate({
     inputRange: [0, 1],
-    outputRange: [-250, 450],
+    outputRange: responsiveRange,
   });
 
   return (
-    <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+    <View
+      style={StyleSheet.absoluteFillObject}
+      pointerEvents="none"
+      onLayout={responsive
+        ? ({ nativeEvent }) => setContainerWidth((current) => (
+            current === nativeEvent.layout.width ? current : nativeEvent.layout.width
+          ))
+        : undefined}
+    >
       <Animated.View
         style={[
           styles.shineContainer,
           {
+            width: sweepWidth,
             transform: [{ translateX }, { rotate: angle }],
           },
         ]}
@@ -74,9 +91,8 @@ export default function ShineEffect({
 const styles = StyleSheet.create({
   shineContainer: {
     position: 'absolute',
-    top: -100,
-    bottom: -100,
-    width: 140,
+    top: -120,
+    bottom: -120,
     left: 0,
   },
   gradient: {
