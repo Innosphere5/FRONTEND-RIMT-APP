@@ -293,6 +293,12 @@ export const updateStudentProfile = async ({
   department,
   batch,
   bio,
+  headline,
+  skills,
+  linkedin_url,
+  github_url,
+  portfolio_url,
+  resume_url,
   avatarAsset,
   bannerAsset,
 }) => {
@@ -361,15 +367,42 @@ export const updateStudentProfile = async ({
     const missingFields = new Set();
     while (cloudError?.code === '42703' || cloudError?.code === 'PGRST204') {
       const errorMessage = cloudError.message?.toLowerCase() || '';
-      const unsupportedFields = ['course', 'department', 'batch', 'phone', 'avatar_url', 'banner_url']
-        .filter((field) => errorMessage.includes(field)
-          && Object.prototype.hasOwnProperty.call(updatePayload, field));
-      if (!unsupportedFields.length) break;
+      const match = errorMessage.match(/could not find the '([^']+)' column/i);
+      const badCol = match ? match[1].toLowerCase() : null;
+
+      const unsupportedFields = [
+        'bio',
+        'headline',
+        'skills',
+        'course',
+        'department',
+        'batch',
+        'phone',
+        'avatar_url',
+        'banner_url',
+        'linkedin_url',
+        'github_url',
+        'portfolio_url',
+        'resume_url',
+      ].filter(
+        (field) =>
+          (field === badCol || errorMessage.includes(field)) &&
+          Object.prototype.hasOwnProperty.call(updatePayload, field)
+      );
+
+      if (!unsupportedFields.length) {
+        if (badCol && Object.prototype.hasOwnProperty.call(updatePayload, badCol)) {
+          unsupportedFields.push(badCol);
+        } else {
+          break;
+        }
+      }
 
       unsupportedFields.forEach((field) => {
         delete updatePayload[field];
         missingFields.add(field);
       });
+
       cloudResult = await supabase
         .from('students')
         .update(updatePayload)
@@ -379,9 +412,30 @@ export const updateStudentProfile = async ({
       cloudStudent = cloudResult.data;
       cloudError = cloudResult.error;
     }
-    if (missingFields.size) {
+
+    // If cloudStudent wasn't retrieved by the update, fetch it by roll_no
+    if (!cloudStudent?.id) {
+      const { data: existing } = await supabase
+        .from('students')
+        .select('*')
+        .ilike('roll_no', normalizedRoll)
+        .maybeSingle();
+      if (existing) cloudStudent = existing;
+    }
+
+    const dossierSyncedFields = new Set([
+      'bio',
+      'headline',
+      'skills',
+      'linkedin_url',
+      'github_url',
+      'portfolio_url',
+      'resume_url',
+    ]);
+    const criticalMissing = Array.from(missingFields).filter((f) => !dossierSyncedFields.has(f));
+    if (criticalMissing.length > 0) {
       warnings.push(
-        `Supabase is missing ${Array.from(missingFields).join(', ')}. Run supabase/schema.sql; these values are saved locally until the migration is applied.`
+        `Supabase students table is missing ${criticalMissing.join(', ')}.`
       );
     }
 
@@ -391,11 +445,63 @@ export const updateStudentProfile = async ({
       warnings.push('The students table is not available in Supabase; changes were kept on this device.');
     }
 
+    // Upsert into student_profiles table (Bio, Headline, Skills, Social Links, Resume)
+    let profileData = null;
+    if (cloudStudent?.id) {
+      const studentId = cloudStudent.id;
+      const profileRecord = {
+        student_id: studentId,
+        updated_at: new Date().toISOString(),
+      };
+      if (bio !== undefined) profileRecord.bio = bio ? bio.trim() : null;
+      if (headline !== undefined) profileRecord.headline = headline ? headline.trim() : null;
+      if (skills !== undefined) profileRecord.skills = Array.isArray(skills) ? skills : (skills ? String(skills).split(',').map((s) => s.trim()).filter(Boolean) : []);
+      if (linkedin_url !== undefined) profileRecord.linkedin_url = linkedin_url ? linkedin_url.trim() : null;
+      if (github_url !== undefined) profileRecord.github_url = github_url ? github_url.trim() : null;
+      if (portfolio_url !== undefined) profileRecord.portfolio_url = portfolio_url ? portfolio_url.trim() : null;
+      if (resume_url !== undefined) profileRecord.resume_url = resume_url ? resume_url.trim() : null;
+
+      try {
+        const { data: profRes } = await supabase
+          .from('student_profiles')
+          .upsert(profileRecord, { onConflict: 'student_id' })
+          .select()
+          .maybeSingle();
+        profileData = profRes || profileRecord;
+      } catch (profErr) {
+        console.warn('Upsert student_profiles error:', profErr.message);
+      }
+
+      // Record audit log for Admin Realtime visibility
+      try {
+        await supabase
+          .from('admin_audit_log')
+          .insert([{
+            target_student_id: studentId,
+            table_name: 'student_profiles',
+            record_id: studentId,
+            action: 'student_profile_update',
+            old_data: null,
+            new_data: profileRecord,
+            created_at: new Date().toISOString(),
+          }]);
+      } catch {
+        // silent fallback
+      }
+    }
+
     // Keep a local copy so older cloud rows can recover fields saved by the app.
     const active = await getActiveScholar();
     const updatedScholar = {
       ...(active || {}),
       ...(cloudStudent || {}),
+      profile: profileData || active?.profile || null,
+      headline: headline !== undefined ? headline : (active?.headline || null),
+      skills: skills !== undefined ? skills : (active?.skills || []),
+      linkedin_url: linkedin_url !== undefined ? linkedin_url : (active?.linkedin_url || null),
+      github_url: github_url !== undefined ? github_url : (active?.github_url || null),
+      portfolio_url: portfolio_url !== undefined ? portfolio_url : (active?.portfolio_url || null),
+      resume_url: resume_url !== undefined ? resume_url : (active?.resume_url || null),
       roll_no: normalizedRoll,
       ...requestedPayload,
     };
@@ -420,6 +526,55 @@ export const updateStudentProfile = async ({
   } catch (err) {
     console.error('Error updating student profile:', err);
     return { success: false, error: err.message };
+  }
+};
+
+/**
+ * Fetch comprehensive student data including dossier profile and academic records
+ */
+export const getFullStudentData = async (student) => {
+  if (!student) return null;
+  const studentId = student.id;
+  if (!studentId) return student;
+
+  try {
+    const [profileRes, acadRes, projectsRes, gitRes, certsRes, internshipsRes] = await Promise.all([
+      supabase.from('student_profiles').select('*').eq('student_id', studentId).maybeSingle(),
+      supabase.from('student_academic_summary').select('*').eq('student_id', studentId).maybeSingle(),
+      supabase.from('student_projects').select('*').eq('student_id', studentId).eq('is_visible', true).order('sort_order', { ascending: true }),
+      supabase.from('student_git_projects').select('*').eq('student_id', studentId).eq('is_visible', true).order('sort_order', { ascending: true }),
+      supabase.from('student_certificates').select('*').eq('student_id', studentId).eq('is_visible', true).order('sort_order', { ascending: true }),
+      supabase.from('student_internships').select('*').eq('student_id', studentId).order('created_at', { ascending: false }),
+    ]);
+
+    const profile = profileRes.data || {};
+    const acad = acadRes.data || {};
+    const projects = projectsRes.data || [];
+    const git_projects = gitRes.data || [];
+    const certificates = certsRes.data || [];
+    const internships = internshipsRes.data || [];
+
+    return {
+      ...student,
+      profile,
+      headline: profile.headline || student.headline || null,
+      bio: profile.bio || student.bio || null,
+      skills: profile.skills || student.skills || [],
+      linkedin_url: profile.linkedin_url || student.linkedin_url || null,
+      github_url: profile.github_url || student.github_url || null,
+      portfolio_url: profile.portfolio_url || student.portfolio_url || null,
+      resume_url: profile.resume_url || student.resume_url || null,
+      projects,
+      git_projects,
+      certificates,
+      internships,
+      academic_summary: acad,
+      cgpa: acad.cgpa != null ? acad.cgpa : student.cgpa,
+      overall_attendance: acad.overall_attendance != null ? acad.overall_attendance : student.overall_attendance,
+      backlogs: acad.backlogs != null ? acad.backlogs : student.backlogs,
+    };
+  } catch {
+    return student;
   }
 };
 
@@ -485,7 +640,8 @@ export const signInStudent = async ({ rollNo }) => {
     }
 
     if (isApproved) {
-      const activeStudent = { ...student, status: 'APPROVED' };
+      const fullStudent = await getFullStudentData(student);
+      const activeStudent = { ...student, ...fullStudent, status: 'APPROVED' };
       await storage.setItem(STORAGE_ACTIVE_SCHOLAR, JSON.stringify(activeStudent));
 
       return {
@@ -538,7 +694,8 @@ export const checkStudentApprovalStatus = async ({ rollNo }) => {
 
     if (currentStatus === 'APPROVED') {
       // User was approved! Save session so they can enter immediately
-      const activeStudent = { ...student, status: 'APPROVED' };
+      const fullStudent = await getFullStudentData(student);
+      const activeStudent = { ...student, ...fullStudent, status: 'APPROVED' };
       await storage.setItem(STORAGE_ACTIVE_SCHOLAR, JSON.stringify(activeStudent));
       return {
         status: 'APPROVED',

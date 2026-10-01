@@ -12,13 +12,14 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Colors, Spacing, Typography, Radii, ImageAssets, FontFamilies } from '../theme/tokens';
+import { Colors, Spacing, Typography, Radii, ImageAssets, FontFamilies, getAvatarSource } from '../theme/tokens';
 import Header from '../components/Header';
 import ShineEffect from '../components/ShineEffect';
 import ZoomCard from '../components/ZoomCard';
 import { useAuth } from '../context/AuthContext';
 import EditProfileScreen from './EditProfileScreen';
 import NoticeModal from '../components/NoticeModal';
+import PhotoViewerModal from '../components/PhotoViewerModal';
 
 export default function ProfileScreen({ onNavigate, onSignOut }) {
   const { currentStudent, signOut } = useAuth();
@@ -26,6 +27,26 @@ export default function ProfileScreen({ onNavigate, onSignOut }) {
   const [pulseAnim] = useState(() => new Animated.Value(0));
   const [isEditing, setIsEditing] = useState(false);
   const [notice, setNotice] = useState(null);
+  const [showPhotoViewer, setShowPhotoViewer] = useState(false);
+
+  const prof = currentStudent?.profile || {};
+  const cgpaValue = currentStudent?.cgpa != null
+    ? Number(currentStudent.cgpa).toFixed(2)
+    : (currentStudent?.academic_summary?.cgpa != null ? Number(currentStudent.academic_summary.cgpa).toFixed(2) : null);
+
+  const attendanceValue = currentStudent?.overall_attendance != null
+    ? `${Number(currentStudent.overall_attendance).toFixed(1)}%`
+    : (currentStudent?.academic_summary?.overall_attendance != null ? `${Number(currentStudent.academic_summary.overall_attendance).toFixed(1)}%` : null);
+
+  const headline = currentStudent?.headline || prof.headline || null;
+  const bio = currentStudent?.bio || prof.bio || null;
+  const skillsList = Array.isArray(currentStudent?.skills)
+    ? currentStudent.skills
+    : (Array.isArray(prof.skills) ? prof.skills : []);
+  const linkedinUrl = currentStudent?.linkedin_url || prof.linkedin_url || null;
+  const githubUrl = currentStudent?.github_url || prof.github_url || null;
+  const portfolioUrl = currentStudent?.portfolio_url || prof.portfolio_url || null;
+  const resumeUrl = currentStudent?.resume_url || prof.resume_url || null;
 
   useEffect(() => {
     const pulseLoop = Animated.loop(
@@ -165,15 +186,21 @@ export default function ProfileScreen({ onNavigate, onSignOut }) {
               />
 
               <View style={styles.identityHeader}>
-                <View style={styles.avatarWrapper}>
+                <TouchableOpacity
+                  style={styles.avatarWrapper}
+                  onPress={() => setShowPhotoViewer(true)}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel="Enlarge scholar profile photo"
+                >
                   <Image
-                    source={{ uri: currentStudent?.avatar_url || ImageAssets.studentAvatar }}
+                    source={getAvatarSource(currentStudent?.avatar_url)}
                     style={styles.avatarImage}
                   />
                   <View style={styles.avatarCheckBadge}>
                     <MaterialIcons name="check" size={12} color="#ffffff" />
                   </View>
-                </View>
+                </TouchableOpacity>
 
                 <View style={styles.identityDetails}>
                   <Text style={styles.studentName}>{currentStudent?.name || '---'}</Text>
@@ -256,7 +283,7 @@ export default function ProfileScreen({ onNavigate, onSignOut }) {
                   <Text style={styles.summaryCardLabel}>Cumulative CGPA</Text>
                   <View style={styles.summaryCardBottom}>
                     <Text style={[styles.summaryCardValue, { color: Colors.primary }]}>
-                      8.84 <Text style={styles.cgpaMax}>/ 10.0</Text>
+                      {cgpaValue != null ? cgpaValue : '—'} {cgpaValue != null && <Text style={styles.cgpaMax}>/ 10.0</Text>}
                     </Text>
                     <MaterialIcons name="grade" size={18} color={Colors.primary} />
                   </View>
@@ -280,7 +307,7 @@ export default function ProfileScreen({ onNavigate, onSignOut }) {
                   <Text style={styles.summaryCardLabel}>Overall Attendance</Text>
                   <View style={styles.summaryCardBottom}>
                     <Text style={[styles.summaryCardValue, { color: Colors.verifiedGreen }]}>
-                      92.4%
+                      {attendanceValue != null ? attendanceValue : '—'}
                     </Text>
                     <MaterialIcons name="fact-check" size={18} color={Colors.verifiedGreen} />
                   </View>
@@ -341,6 +368,75 @@ export default function ProfileScreen({ onNavigate, onSignOut }) {
                 <Text style={styles.detailValue}>{currentStudent?.phone || 'Not provided'}</Text>
               </View>
 
+              {headline ? (
+                <View style={styles.detailRow}>
+                  <View style={styles.detailLabelRow}>
+                    <MaterialIcons name="badge" size={17} color={Colors.secondary} />
+                    <Text style={styles.detailLabel}>Headline</Text>
+                  </View>
+                  <Text style={styles.detailValue}>{headline}</Text>
+                </View>
+              ) : null}
+
+              {bio ? (
+                <View style={styles.detailRow}>
+                  <View style={styles.detailLabelRow}>
+                    <MaterialIcons name="description" size={17} color={Colors.secondary} />
+                    <Text style={styles.detailLabel}>Bio &amp; Summary</Text>
+                  </View>
+                  <Text style={[styles.detailValue, { lineHeight: 18 }]}>{bio}</Text>
+                </View>
+              ) : null}
+
+              {skillsList && skillsList.length > 0 ? (
+                <View style={styles.detailRow}>
+                  <View style={styles.detailLabelRow}>
+                    <MaterialIcons name="psychology" size={17} color={Colors.secondary} />
+                    <Text style={styles.detailLabel}>Skills</Text>
+                  </View>
+                  <Text style={styles.detailValue}>{skillsList.join(', ')}</Text>
+                </View>
+              ) : null}
+
+              {linkedinUrl ? (
+                <View style={styles.detailRow}>
+                  <View style={styles.detailLabelRow}>
+                    <MaterialIcons name="link" size={17} color="#0A66C2" />
+                    <Text style={styles.detailLabel}>LinkedIn</Text>
+                  </View>
+                  <Text style={[styles.detailValue, { color: Colors.primary }]} numberOfLines={1}>{linkedinUrl}</Text>
+                </View>
+              ) : null}
+
+              {githubUrl ? (
+                <View style={styles.detailRow}>
+                  <View style={styles.detailLabelRow}>
+                    <MaterialIcons name="code" size={17} color={Colors.secondary} />
+                    <Text style={styles.detailLabel}>GitHub</Text>
+                  </View>
+                  <Text style={[styles.detailValue, { color: Colors.primary }]} numberOfLines={1}>{githubUrl}</Text>
+                </View>
+              ) : null}
+
+              {portfolioUrl ? (
+                <View style={styles.detailRow}>
+                  <View style={styles.detailLabelRow}>
+                    <MaterialIcons name="language" size={17} color={Colors.secondary} />
+                    <Text style={styles.detailLabel}>Portfolio</Text>
+                  </View>
+                  <Text style={[styles.detailValue, { color: Colors.primary }]} numberOfLines={1}>{portfolioUrl}</Text>
+                </View>
+              ) : null}
+
+              {resumeUrl ? (
+                <View style={styles.detailRow}>
+                  <View style={styles.detailLabelRow}>
+                    <MaterialIcons name="article" size={17} color={Colors.primary} />
+                    <Text style={styles.detailLabel}>Resume</Text>
+                  </View>
+                  <Text style={[styles.detailValue, { color: Colors.primary }]} numberOfLines={1}>{resumeUrl}</Text>
+                </View>
+              ) : null}
             </View>
           )}
         </ZoomCard>
@@ -349,11 +445,7 @@ export default function ProfileScreen({ onNavigate, onSignOut }) {
         <View style={styles.updateCtaWrapper}>
           <ZoomCard
             style={styles.updateButtonWrapper}
-            onPress={() => setNotice({
-              title: 'Update Profile',
-              message: 'Your current scholar details are ready for Registrar verification.',
-              actionLabel: 'Done',
-            })}
+            onPress={() => setIsEditing(true)}
             scaleTo={1.04}
           >
             <LinearGradient
@@ -399,6 +491,16 @@ export default function ProfileScreen({ onNavigate, onSignOut }) {
         {/* Space for bottom navigation */}
         <View style={{ height: 80 }} />
       </ScrollView>
+
+      <PhotoViewerModal
+        visible={showPhotoViewer}
+        imageUri={currentStudent?.avatar_url}
+        name={currentStudent?.name}
+        rollNo={currentStudent?.roll_no}
+        onClose={() => setShowPhotoViewer(false)}
+        onChangePhoto={() => setIsEditing(true)}
+      />
+
       <NoticeModal
         visible={!!notice}
         title={notice?.title}

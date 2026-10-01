@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -12,24 +12,75 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { Colors, FontFamilies, ImageAssets, Radii, Spacing, Typography } from '../theme/tokens';
+import { Colors, FontFamilies, ImageAssets, Radii, Spacing, Typography, getAvatarSource } from '../theme/tokens';
 import { useAuth } from '../context/AuthContext';
 import { AVAILABLE_COURSES } from './OnboardingScreen';
 import ZoomCard from '../components/ZoomCard';
 import NoticeModal from '../components/NoticeModal';
+import PhotoViewerModal from '../components/PhotoViewerModal';
 
 export default function EditProfileScreen({ onBack }) {
   const { currentStudent, updateProfile } = useAuth();
   const currentCourse = AVAILABLE_COURSES.find((course) => course.code === currentStudent?.course);
+  const prof = currentStudent?.profile || {};
   const [name, setName] = useState(currentStudent?.name || '');
   const [phone, setPhone] = useState(currentStudent?.phone || '');
   const [batch, setBatch] = useState(currentStudent?.batch || '');
-  const [bio, setBio] = useState(currentStudent?.bio || '');
+  const [bio, setBio] = useState(currentStudent?.bio || prof.bio || '');
+  const [headline, setHeadline] = useState(currentStudent?.headline || prof.headline || '');
+  const [skills, setSkills] = useState(
+    Array.isArray(currentStudent?.skills)
+      ? currentStudent.skills.join(', ')
+      : (Array.isArray(prof.skills) ? prof.skills.join(', ') : (currentStudent?.skills || prof.skills || ''))
+  );
+  const [linkedinUrl, setLinkedinUrl] = useState(currentStudent?.linkedin_url || prof.linkedin_url || '');
+  const [githubUrl, setGithubUrl] = useState(currentStudent?.github_url || prof.github_url || '');
+  const [portfolioUrl, setPortfolioUrl] = useState(currentStudent?.portfolio_url || prof.portfolio_url || '');
+  const [resumeUrl, setResumeUrl] = useState(currentStudent?.resume_url || prof.resume_url || '');
   const [selectedCourse, setSelectedCourse] = useState(currentCourse || null);
   const [avatarAsset, setAvatarAsset] = useState(null);
   const [bannerAsset, setBannerAsset] = useState(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState(null);
+  const [showPhotoViewer, setShowPhotoViewer] = useState(false);
+
+  // Refs to distinguish self-saves from external Realtime updates
+  const savingRef = useRef(false);
+  const initialLoadRef = useRef(true);
+
+  // Sync external Realtime updates (e.g. admin edits) into form state
+  useEffect(() => {
+    if (initialLoadRef.current) {
+      initialLoadRef.current = false;
+      return;
+    }
+    // Skip re-sync if this component triggered the save
+    if (savingRef.current) return;
+
+    const p = currentStudent?.profile || {};
+    setName(currentStudent?.name || '');
+    setPhone(currentStudent?.phone || '');
+    setBatch(currentStudent?.batch || '');
+    setBio(currentStudent?.bio || p.bio || '');
+    setHeadline(currentStudent?.headline || p.headline || '');
+    setSkills(
+      Array.isArray(currentStudent?.skills)
+        ? currentStudent.skills.join(', ')
+        : (Array.isArray(p.skills) ? p.skills.join(', ') : (currentStudent?.skills || p.skills || ''))
+    );
+    setLinkedinUrl(currentStudent?.linkedin_url || p.linkedin_url || '');
+    setGithubUrl(currentStudent?.github_url || p.github_url || '');
+    setPortfolioUrl(currentStudent?.portfolio_url || p.portfolio_url || '');
+    setResumeUrl(currentStudent?.resume_url || p.resume_url || '');
+
+    const updatedCourse = AVAILABLE_COURSES.find((c) => c.code === currentStudent?.course);
+    if (updatedCourse) setSelectedCourse(updatedCourse);
+
+    setNotice({
+      title: 'Profile refreshed',
+      message: 'An administrator updated your profile. The form now shows the latest data.',
+    });
+  }, [currentStudent?.updated_at, currentStudent?.profile?.updated_at]);
 
   const pickImage = async (kind) => {
     try {
@@ -57,6 +108,7 @@ export default function EditProfileScreen({ onBack }) {
       return;
     }
 
+    savingRef.current = true;
     setSaving(true);
     try {
       const result = await updateProfile({
@@ -64,6 +116,12 @@ export default function EditProfileScreen({ onBack }) {
         phone: phone.trim(),
         batch: batch.trim(),
         bio: bio.trim(),
+        headline: headline.trim(),
+        skills: skills ? skills.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        linkedin_url: linkedinUrl.trim(),
+        github_url: githubUrl.trim(),
+        portfolio_url: portfolioUrl.trim(),
+        resume_url: resumeUrl.trim(),
         course: selectedCourse.code,
         department: selectedCourse.department,
         avatarAsset,
@@ -89,10 +147,14 @@ export default function EditProfileScreen({ onBack }) {
       setNotice({ title: 'Update failed', message: error.message || 'The profile could not be saved.' });
     } finally {
       setSaving(false);
+      // Reset after a short delay so we don't re-sync our own Realtime echo
+      setTimeout(() => { savingRef.current = false; }, 2500);
     }
   };
 
-  const avatarUri = avatarAsset?.uri || currentStudent?.avatar_url || ImageAssets.studentAvatar;
+  const avatarSource = avatarAsset?.uri
+    ? { uri: avatarAsset.uri }
+    : getAvatarSource(currentStudent?.avatar_url);
   const bannerUri = bannerAsset?.uri || currentStudent?.banner_url || ImageAssets.campusHero;
 
   return (
@@ -126,17 +188,32 @@ export default function EditProfileScreen({ onBack }) {
             <Text style={styles.bannerActionText}>Change banner</Text>
           </TouchableOpacity>
           <View style={styles.avatarRow}>
-            <View style={styles.avatarFrame}>
-              <Image source={{ uri: avatarUri }} style={styles.avatar} />
-            </View>
-            <View style={styles.avatarCopy}>
+            <TouchableOpacity
+              style={styles.avatarFrame}
+              onPress={() => setShowPhotoViewer(true)}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Enlarge scholar profile photo"
+            >
+              <Image source={avatarSource} style={styles.avatar} />
+              <View style={styles.zoomHintBadge}>
+                <MaterialIcons name="zoom-in" size={12} color="#ffffff" />
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.avatarCopy}
+              onPress={() => setShowPhotoViewer(true)}
+              activeOpacity={0.85}
+            >
               <Text style={styles.avatarTitle}>Scholar portrait</Text>
-              <Text style={styles.avatarSubtitle}>Stored with your academic profile</Text>
-            </View>
+              <Text style={styles.avatarSubtitle}>Tap photo to enlarge · Stored with profile</Text>
+            </TouchableOpacity>
             <TouchableOpacity
               style={styles.photoButton}
               onPress={() => pickImage('avatar')}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Change profile photo"
             >
               <MaterialIcons name="edit" size={17} color={Colors.secondary} />
             </TouchableOpacity>
@@ -180,6 +257,14 @@ export default function EditProfileScreen({ onBack }) {
             placeholder="e.g. 2024-2027"
             placeholderTextColor={Colors.neutralGray}
           />
+          <Text style={styles.fieldLabel}>Professional Headline</Text>
+          <TextInput
+            style={styles.input}
+            value={headline}
+            onChangeText={setHeadline}
+            placeholder="e.g. Software Engineer | React Native Developer"
+            placeholderTextColor={Colors.neutralGray}
+          />
           <Text style={styles.fieldLabel}>Professional Bio &amp; Summary</Text>
           <TextInput
             style={[styles.input, { height: 78, textAlignVertical: 'top', paddingTop: 10 }]}
@@ -189,6 +274,54 @@ export default function EditProfileScreen({ onBack }) {
             placeholderTextColor={Colors.neutralGray}
             multiline
             numberOfLines={3}
+          />
+          <Text style={styles.fieldLabel}>Verified Skills (comma separated)</Text>
+          <TextInput
+            style={styles.input}
+            value={skills}
+            onChangeText={setSkills}
+            placeholder="e.g. React Native, TypeScript, Node.js, Python"
+            placeholderTextColor={Colors.neutralGray}
+          />
+          <Text style={styles.fieldLabel}>LinkedIn Profile URL</Text>
+          <TextInput
+            style={styles.input}
+            value={linkedinUrl}
+            onChangeText={setLinkedinUrl}
+            placeholder="https://linkedin.com/in/username"
+            placeholderTextColor={Colors.neutralGray}
+            autoCapitalize="none"
+            keyboardType="url"
+          />
+          <Text style={styles.fieldLabel}>GitHub Profile URL</Text>
+          <TextInput
+            style={styles.input}
+            value={githubUrl}
+            onChangeText={setGithubUrl}
+            placeholder="https://github.com/username"
+            placeholderTextColor={Colors.neutralGray}
+            autoCapitalize="none"
+            keyboardType="url"
+          />
+          <Text style={styles.fieldLabel}>Portfolio Website URL</Text>
+          <TextInput
+            style={styles.input}
+            value={portfolioUrl}
+            onChangeText={setPortfolioUrl}
+            placeholder="https://yourportfolio.dev"
+            placeholderTextColor={Colors.neutralGray}
+            autoCapitalize="none"
+            keyboardType="url"
+          />
+          <Text style={styles.fieldLabel}>Resume / CV Document URL</Text>
+          <TextInput
+            style={styles.input}
+            value={resumeUrl}
+            onChangeText={setResumeUrl}
+            placeholder="https://drive.google.com/... or cloud link"
+            placeholderTextColor={Colors.neutralGray}
+            autoCapitalize="none"
+            keyboardType="url"
           />
         </ZoomCard>
 
@@ -247,6 +380,15 @@ export default function EditProfileScreen({ onBack }) {
         </TouchableOpacity>
         <View style={styles.bottomSpace} />
       </ScrollView>
+
+      <PhotoViewerModal
+        visible={showPhotoViewer}
+        imageUri={avatarAsset?.uri || currentStudent?.avatar_url}
+        name={name || currentStudent?.name}
+        rollNo={currentStudent?.roll_no}
+        onClose={() => setShowPhotoViewer(false)}
+        onChangePhoto={() => pickImage('avatar')}
+      />
 
       <NoticeModal
         visible={!!notice}
@@ -334,6 +476,18 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#ffffff',
     backgroundColor: Colors.canvasAlt,
+    position: 'relative',
+  },
+  zoomHintBadge: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    backgroundColor: 'rgba(18, 38, 61, 0.75)',
+    borderRadius: Radii.full,
+    width: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   avatar: { width: '100%', height: '100%' },
   avatarCopy: { flex: 1 },
