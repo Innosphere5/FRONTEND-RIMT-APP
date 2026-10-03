@@ -298,6 +298,30 @@ export const ImageAssets = {
   campusHero: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDU0WxpQlbpxQiarnBUYXOm-UdffEHgfxRgYqHcpYW81UL5rGmsBSXxfhK8URFbOue13YJBfR1xcybNvdgqxCugUlL7eXsIsoI1LErveZBZyvEmMH4tTZ6HZdrrNzGqBBtdwIM_rGSe9idFsJn4uZz8vYonAF5dSDL1gvVbZ7xNazKnW4Gju4oR13POPiAN5oPuq68udftDyi3-cSHXEx6Exzkh1oitFx8Od_g_DO9GpZbD8BgpyZZD2A',
   universityLogo: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCYu7wEqEho2HzKdFJ1-f9X8GqvaK7LN8aj3MXC0GrK_VF7qROIqfjlIJZH-aM-vLTIeRa23FU3Xt0hQQ9gYLslfyaHFNvI8tRy0ob4h5GPz5XN3fNkV3iQWlsAz7n3DdNEYtyIDNlCXBzFIdU_AdUtMu_06JiFsfJg3MNuaNSQF1zttIm7CGt3GUShMLaVPN4DYBAfxRHmhVt95m1LChjUeRj4W9Z-EPahmqyawfkaOBFTBOwBCHjuUvGNqNRah7l51Eg',
   universityLogoAlt: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCY-fnLUkZMOj6CKXbXhPDz5G8qKB2oDaTHnsHe-hERjJ-2S_vudVHYlRRDvmqS2hT6aP1HRw8-Vg8TYZRbtO2IPr0QdEc68FzBA580Z4TcxilS2jqepgz20kU2czF0FheX4d_QtKiCQbzqT1wDOZAYwL0OYHodmROsCP4IK7RAjWPW4gIzDDdHdJi_qLyKVrM0D2SKz5lLamOW6vJAbVC0GE35TWodQsGwARNEKJ-D0DyB-9moRH_tuxvI2b3UG0ao-Ro',
-  studentAvatar: 'https://lh3.googleusercontent.com/aida/AEtjO1UXAm5cYJI9GLblA6GRlMFHI3CvGm8nXUtVpzwv84OF0ztCwwMJwf_zJyolGQqXsQvm8He2vBEk7m3j-l8ro4sTK0IhI8PVOwpymJXnFQo85jA-JAzPNuUcEYpu0wINgY5UBUcGsRdCmmqoU3FS9FXKq-WXDB8lOzNxBtUhhcKIVqWBP_QaMSMTSXPlmiS4RSPTcMcyA-Nv7UyHpFy7qR-hVZdczfLNim3DRRqjdcwVs5E96E1Mfze3W1lC',
-  profileAvatarSecondary: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCOD-CmOzYOqOTgassQihXxS_KwiSj6J4LnyGv96NGw6Vxf1TPsXXws9HUa5u4sxvT62Tq_FSmkDUYzygI20Kb2BHMdtcmFewG2BHxORDslnuhL6JEqVyXZITYhf7hED9Y6lH8dNgwLEOSr9RFtA_25Lh4qeSX4redQiy-D30cLgpCzXT0YGGaIAwWAOOnFMf0bFLhUv487Ix0JMu8yXx492F3hN3DyfZ85tCl4eqBEFhNFSkLcdhrvHg',
+  defaultAvatar: require('../../assets/default-avatar.png'),
+  studentAvatar: require('../../assets/default-avatar.png'),
+  profileAvatarSecondary: require('../../assets/default-avatar.png'),
 };
+
+/**
+ * Returns a valid React Native Image source object or local asset reference.
+ * Guarantees that if a student hasn't uploaded a photo, the standard default silhouette is shown.
+ */
+export const getAvatarSource = (avatar) => {
+  if (!avatar) return ImageAssets.defaultAvatar;
+  if (typeof avatar === 'string') {
+    const trimmed = avatar.trim();
+    if (!trimmed || trimmed === 'null' || trimmed === 'undefined') {
+      return ImageAssets.defaultAvatar;
+    }
+    return { uri: trimmed };
+  }
+  if (typeof avatar === 'object') {
+    if (avatar.uri && typeof avatar.uri === 'string' && avatar.uri.trim() && avatar.uri !== 'null') {
+      return avatar;
+    }
+    return ImageAssets.defaultAvatar;
+  }
+  return avatar;
+};
+

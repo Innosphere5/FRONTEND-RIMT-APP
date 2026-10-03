@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Image, Platform } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Colors, Spacing, Typography, ImageAssets, Radii } from '../theme/tokens';
+import { Colors, Spacing, Typography, ImageAssets, Radii, getAvatarSource } from '../theme/tokens';
 import ZoomCard from './ZoomCard';
 
 export default function Header({
@@ -10,7 +10,7 @@ export default function Header({
   onNotificationPress,
   onProfilePress,
   hasUnreadNotifications = true,
-  avatarUrl = ImageAssets.profileAvatarSecondary,
+  avatarUrl = ImageAssets.defaultAvatar,
 }) {
   return (
     <ZoomCard
@@ -51,7 +51,7 @@ export default function Header({
           accessibilityRole="button"
         >
           <Image
-            source={{ uri: avatarUrl }}
+            source={getAvatarSource(avatarUrl)}
             style={styles.avatar}
           />
         </ZoomCard>

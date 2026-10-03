@@ -9,7 +9,9 @@ import {
   checkSupabaseConnection,
   hasRegisteredStudents,
   checkStudentApprovalStatus,
+  getFullStudentData,
 } from '../services/authService';
+import { supabase } from '../services/supabase';
 
 const AuthContext = createContext({
   currentStudent: null,
@@ -84,6 +86,84 @@ export const AuthProvider = ({ children }) => {
       isMounted = false;
     };
   }, []);
+
+  // Real-time synchronization: Instant updates when Admin changes profile or academics
+  useEffect(() => {
+    if (!currentStudent?.id && !currentStudent?.roll_no && !currentStudent?.roll_number) return;
+    const studentId = currentStudent.id;
+    const studentRoll = currentStudent.roll_no || currentStudent.roll_number;
+
+    const channelId = `student-app-sync-${String(studentId || studentRoll).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    const channel = supabase
+      .channel(channelId)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'students' }, async (payload) => {
+        if (payload.new && (payload.new.id === studentId || payload.new.roll_no === studentRoll)) {
+          const status = (payload.new.status || '').toUpperCase();
+          if (status === 'REVOKED' || status === 'REJECTED') {
+            await signOutStudent();
+            setCurrentStudent(null);
+            return;
+          }
+          const fullData = await getFullStudentData(payload.new);
+          setCurrentStudent((prev) => ({ ...(prev || {}), ...fullData }));
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'student_profiles' }, (payload) => {
+        if (payload.new && (payload.new.student_id === studentId)) {
+          setCurrentStudent((prev) => ({
+            ...(prev || {}),
+            profile: payload.new,
+            bio: payload.new.bio !== undefined ? payload.new.bio : prev?.bio,
+            headline: payload.new.headline !== undefined ? payload.new.headline : prev?.headline,
+            skills: payload.new.skills !== undefined ? payload.new.skills : prev?.skills,
+            linkedin_url: payload.new.linkedin_url !== undefined ? payload.new.linkedin_url : prev?.linkedin_url,
+            github_url: payload.new.github_url !== undefined ? payload.new.github_url : prev?.github_url,
+            portfolio_url: payload.new.portfolio_url !== undefined ? payload.new.portfolio_url : prev?.portfolio_url,
+            resume_url: payload.new.resume_url !== undefined ? payload.new.resume_url : prev?.resume_url,
+          }));
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'student_academic_summary' }, (payload) => {
+        if (payload.new && (payload.new.student_id === studentId)) {
+          setCurrentStudent((prev) => ({
+            ...(prev || {}),
+            academic_summary: payload.new,
+            cgpa: payload.new.cgpa != null ? payload.new.cgpa : prev?.cgpa,
+            overall_attendance: payload.new.overall_attendance != null ? payload.new.overall_attendance : prev?.overall_attendance,
+            backlogs: payload.new.backlogs != null ? payload.new.backlogs : prev?.backlogs,
+          }));
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'student_projects' }, async (payload) => {
+        if (payload.new?.student_id === studentId || payload.old?.student_id === studentId) {
+          const fullData = await getFullStudentData({ id: studentId, roll_no: studentRoll });
+          setCurrentStudent((prev) => ({ ...(prev || {}), ...fullData }));
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'student_git_projects' }, async (payload) => {
+        if (payload.new?.student_id === studentId || payload.old?.student_id === studentId) {
+          const fullData = await getFullStudentData({ id: studentId, roll_no: studentRoll });
+          setCurrentStudent((prev) => ({ ...(prev || {}), ...fullData }));
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'student_certificates' }, async (payload) => {
+        if (payload.new?.student_id === studentId || payload.old?.student_id === studentId) {
+          const fullData = await getFullStudentData({ id: studentId, roll_no: studentRoll });
+          setCurrentStudent((prev) => ({ ...(prev || {}), ...fullData }));
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'student_internships' }, async (payload) => {
+        if (payload.new?.student_id === studentId || payload.old?.student_id === studentId) {
+          const fullData = await getFullStudentData({ id: studentId, roll_no: studentRoll });
+          setCurrentStudent((prev) => ({ ...(prev || {}), ...fullData }));
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentStudent?.id, currentStudent?.roll_no, currentStudent?.roll_number]);
 
   const handleSignIn = async ({ rollNo, email, password }) => {
     await signOutStudent();

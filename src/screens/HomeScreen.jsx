@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Colors, Spacing, Typography, Radii, ImageAssets, FontFamilies } from '../theme/tokens';
+import { Colors, Spacing, Typography, Radii, ImageAssets, FontFamilies, getAvatarSource } from '../theme/tokens';
 import Header from '../components/Header';
 import MetricCard from '../components/MetricCard';
 import ActionTile from '../components/ActionTile';
@@ -89,7 +89,7 @@ export default function HomeScreen({ onNavigate }) {
       <Header
         title="Overview"
         eyebrow="RIMT ACADEMIC TRUST"
-        avatarUrl={currentStudent?.avatar_url || ImageAssets.profileAvatarSecondary}
+        avatarUrl={currentStudent?.avatar_url || ImageAssets.defaultAvatar}
         onNotificationPress={() => Alert.alert('Notifications', 'You have 1 new announcement from the Registrar.')}
         onProfilePress={() => onNavigate?.('profile')}
       />
@@ -135,7 +135,7 @@ export default function HomeScreen({ onNavigate }) {
                 {/* Student Avatar with Initials Badge */}
                 <View style={styles.avatarContainer}>
                   <Image
-                    source={{ uri: currentStudent?.avatar_url || ImageAssets.studentAvatar }}
+                    source={getAvatarSource(currentStudent?.avatar_url)}
                     style={styles.studentAvatar}
                   />
                   <View style={styles.hkBadge}>
