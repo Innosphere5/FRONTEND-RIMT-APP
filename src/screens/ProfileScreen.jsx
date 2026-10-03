@@ -21,11 +21,16 @@ import EditProfileScreen from './EditProfileScreen';
 import NoticeModal from '../components/NoticeModal';
 
 export default function ProfileScreen({ onNavigate, onSignOut }) {
-  const { currentStudent, signOut } = useAuth();
+  const { currentStudent, signOut, refreshProfile } = useAuth();
   const [detailsExpanded, setDetailsExpanded] = useState(true);
   const [pulseAnim] = useState(() => new Animated.Value(0));
   const [isEditing, setIsEditing] = useState(false);
   const [notice, setNotice] = useState(null);
+
+  useEffect(() => {
+    // Refresh profile from Supabase to get admin-updated fields
+    refreshProfile?.();
+  }, [refreshProfile]);
 
   useEffect(() => {
     const pulseLoop = Animated.loop(
@@ -235,7 +240,9 @@ export default function ProfileScreen({ onNavigate, onSignOut }) {
                   />
                   <Text style={styles.summaryCardLabel}>Current semester</Text>
                   <View style={styles.summaryCardBottom}>
-                    <Text style={styles.summaryCardValue}>Semester 8</Text>
+                    <Text style={styles.summaryCardValue}>
+                      {currentStudent?.current_semester || currentStudent?.semester || 'Not set'}
+                    </Text>
                     <MaterialIcons name="school" size={18} color={Colors.secondary} />
                   </View>
               </ZoomCard>
@@ -256,7 +263,10 @@ export default function ProfileScreen({ onNavigate, onSignOut }) {
                   <Text style={styles.summaryCardLabel}>Cumulative CGPA</Text>
                   <View style={styles.summaryCardBottom}>
                     <Text style={[styles.summaryCardValue, { color: Colors.primary }]}>
-                      8.84 <Text style={styles.cgpaMax}>/ 10.0</Text>
+                      {currentStudent?.cgpa
+                        ? `${Number(currentStudent.cgpa).toFixed(2)} `
+                        : '--- '}
+                      <Text style={styles.cgpaMax}>/ 10.0</Text>
                     </Text>
                     <MaterialIcons name="grade" size={18} color={Colors.primary} />
                   </View>
@@ -280,7 +290,9 @@ export default function ProfileScreen({ onNavigate, onSignOut }) {
                   <Text style={styles.summaryCardLabel}>Overall Attendance</Text>
                   <View style={styles.summaryCardBottom}>
                     <Text style={[styles.summaryCardValue, { color: Colors.verifiedGreen }]}>
-                      92.4%
+                      {currentStudent?.attendance_rate
+                        ? `${currentStudent.attendance_rate}%`
+                        : '---'}
                     </Text>
                     <MaterialIcons name="fact-check" size={18} color={Colors.verifiedGreen} />
                   </View>
@@ -302,7 +314,7 @@ export default function ProfileScreen({ onNavigate, onSignOut }) {
                   <Text style={styles.summaryCardLabel}>Faculty Advisor</Text>
                   <View style={styles.summaryCardBottom}>
                     <Text style={[styles.summaryCardValue, { fontSize: 13 }]} numberOfLines={1}>
-                      Dr. Gurpreet Kaur
+                      {currentStudent?.faculty_advisor || 'Not assigned'}
                     </Text>
                     <MaterialIcons name="co-present" size={18} color={Colors.secondary} />
                   </View>
@@ -341,6 +353,72 @@ export default function ProfileScreen({ onNavigate, onSignOut }) {
                 <Text style={styles.detailValue}>{currentStudent?.phone || 'Not provided'}</Text>
               </View>
 
+              {/* Bio section */}
+              {currentStudent?.bio ? (
+                <View style={[styles.detailRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 4 }]}>
+                  <View style={styles.detailLabelRow}>
+                    <MaterialIcons name="description" size={17} color={Colors.secondary} />
+                    <Text style={styles.detailLabel}>Bio</Text>
+                  </View>
+                  <Text style={[styles.detailValue, { fontWeight: '400', lineHeight: 19 }]} numberOfLines={4}>
+                    {currentStudent.bio}
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* About Me section */}
+              {currentStudent?.about_me ? (
+                <View style={[styles.detailRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 4 }]}>
+                  <View style={styles.detailLabelRow}>
+                    <MaterialIcons name="person" size={17} color={Colors.secondary} />
+                    <Text style={styles.detailLabel}>About Me</Text>
+                  </View>
+                  <Text style={[styles.detailValue, { fontWeight: '400', lineHeight: 18 }]}>
+                    {currentStudent.about_me}
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* Skills section */}
+              {(() => {
+                const raw = currentStudent?.skills;
+                let parsedSkills = [];
+                if (Array.isArray(raw)) parsedSkills = raw;
+                else if (typeof raw === 'string') {
+                  try {
+                    const p = JSON.parse(raw);
+                    if (Array.isArray(p)) parsedSkills = p;
+                    else parsedSkills = raw.split(',').map((s) => s.trim()).filter(Boolean);
+                  } catch {
+                    parsedSkills = raw.split(',').map((s) => s.trim()).filter(Boolean);
+                  }
+                }
+                if (!parsedSkills.length) return null;
+
+                return (
+                  <View style={[styles.detailRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6 }]}>
+                    <View style={styles.detailLabelRow}>
+                      <MaterialIcons name="code" size={17} color={Colors.secondary} />
+                      <Text style={styles.detailLabel}>Skills</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                      {parsedSkills.map((skill, idx) => (
+                        <View key={idx} style={{
+                          backgroundColor: 'rgba(62, 97, 134, 0.1)',
+                          paddingHorizontal: 10,
+                          paddingVertical: 4,
+                          borderRadius: 12,
+                          borderWidth: 1,
+                          borderColor: 'rgba(62, 97, 134, 0.2)',
+                        }}>
+                          <Text style={{ fontSize: 11, fontWeight: '600', color: Colors.secondary }}>{skill}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                );
+              })()}
+
             </View>
           )}
         </ZoomCard>
@@ -369,7 +447,9 @@ export default function ProfileScreen({ onNavigate, onSignOut }) {
             </LinearGradient>
           </ZoomCard>
           <Text style={styles.updateFootnote}>
-            Last authenticated update: 12 Feb 2026 · Digital Registrar
+            Last updated: {currentStudent?.updated_at
+              ? new Date(currentStudent.updated_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+              : 'Never'} · Digital Registrar
           </Text>
 
           {/* Sign Out / Lock Session Action */}

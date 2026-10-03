@@ -176,15 +176,6 @@ export const signUpStudent = async ({
       };
     }
 
-    // Determine avatar URL from avatarAsset (base64 or direct uri)
-    let photoUrl = avatar_url || null;
-    if (avatarAsset) {
-      if (avatarAsset.base64) {
-        photoUrl = `data:${avatarAsset.mimeType || 'image/jpeg'};base64,${avatarAsset.base64}`;
-      } else if (avatarAsset.uri && (avatarAsset.uri.startsWith('data:') || avatarAsset.uri.startsWith('http'))) {
-        photoUrl = avatarAsset.uri;
-      }
-    }
 
     // 2. Insert into Supabase with status: PENDING
     // Only pass columns that exist in the Supabase students table:
@@ -197,8 +188,10 @@ export const signUpStudent = async ({
       semester: cleanBatch,
       status: 'PENDING',
     };
-    if (photoUrl) {
-      studentRecord.avatar_url = photoUrl;
+
+    // If we have a direct URL (not base64), include it in the initial insert
+    if (avatar_url && avatar_url.startsWith('http')) {
+      studentRecord.avatar_url = avatar_url;
     }
 
     let inserted = null;
@@ -237,6 +230,62 @@ export const signUpStudent = async ({
     }
 
     inserted = data;
+
+    // 3. Upload avatar to Supabase Storage (proper URL, not base64 in text column)
+    if (avatarAsset && inserted) {
+      try {
+        const fileName = avatarAsset.fileName || avatarAsset.uri?.split('/').pop() || 'avatar.jpg';
+        const extension = fileName.split('.').pop()?.toLowerCase() || 'jpg';
+        const safeRoll = normalizedRoll.replace(/[^A-Z0-9_-]/g, '_');
+        const storagePath = `${safeRoll}/avatar-${Date.now()}.${extension}`;
+        const contentType = avatarAsset.mimeType || 'image/jpeg';
+
+        let uploadBody = null;
+        if (avatarAsset.uri) {
+          uploadBody = await getFileArrayBuffer(avatarAsset.uri, avatarAsset);
+        } else if (avatarAsset.base64) {
+          // Convert base64 to Uint8Array for upload
+          const binaryString = atob(avatarAsset.base64);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          uploadBody = bytes.buffer;
+        }
+
+        if (uploadBody) {
+          const { error: uploadError } = await supabase.storage
+            .from('student-media')
+            .upload(storagePath, uploadBody, { contentType, upsert: false });
+
+          if (!uploadError) {
+            const publicUrl = supabase.storage
+              .from('student-media')
+              .getPublicUrl(storagePath).data.publicUrl;
+
+            if (publicUrl) {
+              // Update the student row with the proper storage URL
+              const { data: updatedStudent } = await supabase
+                .from('students')
+                .update({ avatar_url: publicUrl })
+                .ilike('roll_no', normalizedRoll)
+                .select('*')
+                .maybeSingle();
+
+              if (updatedStudent) {
+                inserted = updatedStudent;
+              } else {
+                inserted.avatar_url = publicUrl;
+              }
+            }
+          } else {
+            console.warn('Avatar upload failed during signup:', uploadError.message);
+          }
+        }
+      } catch (avatarErr) {
+        console.warn('Avatar upload error during signup (non-blocking):', avatarErr?.message);
+      }
+    }
 
     // Cache only a registration confirmed by Supabase.
     const localStudentsJson = await storage.getItem(STORAGE_LOCAL_STUDENTS);
@@ -285,6 +334,70 @@ export const signUpStudent = async ({
 /**
  * Update Student Course, Department & Batch
  */
+/**
+ * Fetch the latest student profile from Supabase in real-time.
+ * Falls back to local storage if Supabase is unreachable.
+ */
+export const fetchStudentProfile = async (rollNo) => {
+  const normalizedRoll = normalizeRollNo(rollNo);
+  if (!normalizedRoll) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('students')
+      .select('*')
+      .ilike('roll_no', normalizedRoll)
+      .maybeSingle();
+
+    if (error) {
+      console.warn('fetchStudentProfile Supabase error:', error.message);
+      // Fall back to local cache
+      return await getActiveScholar();
+    }
+
+    if (data) {
+      // Parse JSONB skills if stored as string
+      if (typeof data.skills === 'string') {
+        try { data.skills = JSON.parse(data.skills); } catch { data.skills = []; }
+      }
+      if (typeof data.semester_scores === 'string') {
+        try { data.semester_scores = JSON.parse(data.semester_scores); } catch { data.semester_scores = []; }
+      }
+      if (typeof data.internships === 'string') {
+        try { data.internships = JSON.parse(data.internships); } catch { data.internships = []; }
+      }
+      // Unpack certificates and internships from admin_notes JSON
+      if (data.admin_notes && typeof data.admin_notes === 'string') {
+        try {
+          const parsedNotes = JSON.parse(data.admin_notes);
+          if (parsedNotes && typeof parsedNotes === 'object') {
+            if (Array.isArray(parsedNotes.certificates) && (!data.certificates || !data.certificates.length)) {
+              data.certificates = parsedNotes.certificates;
+            }
+            if (Array.isArray(parsedNotes.internships) && (!data.internships || !data.internships.length)) {
+              data.internships = parsedNotes.internships;
+            }
+          }
+        } catch {}
+      }
+      // Update local cache with fresh data
+      await storage.setItem(STORAGE_ACTIVE_SCHOLAR, JSON.stringify(data));
+      return data;
+    }
+
+    return await getActiveScholar();
+  } catch (err) {
+    console.warn('fetchStudentProfile network error:', err.message);
+    return await getActiveScholar();
+  }
+};
+
+/**
+ * Update Student Profile — handles all profile fields including
+ * bio, about_me, skills, headline, projects, certificates, internships, and image uploads.
+ * Academic fields (cgpa, semester_scores, etc.) are admin-only
+ * and intentionally excluded from this function.
+ */
 export const updateStudentProfile = async ({
   rollNo,
   name,
@@ -293,6 +406,12 @@ export const updateStudentProfile = async ({
   department,
   batch,
   bio,
+  about_me,
+  headline,
+  skills,
+  projects,
+  certificates,
+  internships,
   avatarAsset,
   bannerAsset,
 }) => {
@@ -310,6 +429,45 @@ export const updateStudentProfile = async ({
     if (course !== undefined) updatePayload.course = course || null;
     if (batch !== undefined) updatePayload.batch = batch || null;
     if (bio !== undefined) updatePayload.bio = bio.trim() || null;
+    if (about_me !== undefined) updatePayload.about_me = about_me.trim() || null;
+    if (headline !== undefined) updatePayload.headline = headline.trim() || null;
+    if (skills !== undefined) {
+      // Skills stored as JSONB array in Supabase
+      updatePayload.skills = Array.isArray(skills) ? skills : [];
+    }
+    if (projects !== undefined) {
+      // Projects stored as JSONB array in Supabase
+      updatePayload.projects = Array.isArray(projects) ? projects : [];
+    }
+
+    // Cloud-sync certificates and internships via students.admin_notes JSON
+    if (certificates !== undefined || internships !== undefined) {
+      let notesObj = {};
+      try {
+        const { data: curStudent } = await supabase
+          .from('students')
+          .select('admin_notes, resume_url')
+          .ilike('roll_no', normalizedRoll)
+          .maybeSingle();
+
+        if (curStudent?.admin_notes) {
+          try { notesObj = JSON.parse(curStudent.admin_notes); } catch {}
+        }
+        if (!curStudent?.resume_url && Array.isArray(certificates) && certificates.length > 0) {
+          const firstUrl = certificates[0].url || certificates[0].cloudinary_url;
+          if (firstUrl) updatePayload.resume_url = firstUrl;
+        }
+      } catch {}
+
+      if (!notesObj || typeof notesObj !== 'object') notesObj = {};
+      if (certificates !== undefined) {
+        notesObj.certificates = Array.isArray(certificates) ? certificates : [];
+      }
+      if (internships !== undefined) {
+        notesObj.internships = Array.isArray(internships) ? internships : [];
+      }
+      updatePayload.admin_notes = JSON.stringify(notesObj);
+    }
 
     const uploadImage = async (asset, type) => {
       if (!asset) return null;
@@ -361,7 +519,11 @@ export const updateStudentProfile = async ({
     const missingFields = new Set();
     while (cloudError?.code === '42703' || cloudError?.code === 'PGRST204') {
       const errorMessage = cloudError.message?.toLowerCase() || '';
-      const unsupportedFields = ['course', 'department', 'batch', 'phone', 'avatar_url', 'banner_url']
+      const retryableFields = [
+        'course', 'department', 'batch', 'phone', 'avatar_url', 'banner_url',
+        'bio', 'about_me', 'headline', 'skills', 'projects',
+      ];
+      const unsupportedFields = retryableFields
         .filter((field) => errorMessage.includes(field)
           && Object.prototype.hasOwnProperty.call(updatePayload, field));
       if (!unsupportedFields.length) break;
@@ -381,7 +543,7 @@ export const updateStudentProfile = async ({
     }
     if (missingFields.size) {
       warnings.push(
-        `Supabase is missing ${Array.from(missingFields).join(', ')}. Run supabase/schema.sql; these values are saved locally until the migration is applied.`
+        `Supabase is missing ${Array.from(missingFields).join(', ')}. Run the migration SQL; values are saved locally until applied.`
       );
     }
 
@@ -391,6 +553,21 @@ export const updateStudentProfile = async ({
       warnings.push('The students table is not available in Supabase; changes were kept on this device.');
     }
 
+    // Parse JSONB fields from cloud response
+    if (cloudStudent) {
+      if (typeof cloudStudent.skills === 'string') {
+        try { cloudStudent.skills = JSON.parse(cloudStudent.skills); } catch { cloudStudent.skills = []; }
+      }
+      if (typeof cloudStudent.projects === 'string') {
+        try { cloudStudent.projects = JSON.parse(cloudStudent.projects); } catch { cloudStudent.projects = []; }
+      }
+      if (typeof cloudStudent.semester_scores === 'string') {
+        try { cloudStudent.semester_scores = JSON.parse(cloudStudent.semester_scores); } catch { cloudStudent.semester_scores = []; }
+      }
+      if (certificates !== undefined) cloudStudent.certificates = certificates;
+      if (internships !== undefined) cloudStudent.internships = internships;
+    }
+
     // Keep a local copy so older cloud rows can recover fields saved by the app.
     const active = await getActiveScholar();
     const updatedScholar = {
@@ -398,6 +575,8 @@ export const updateStudentProfile = async ({
       ...(cloudStudent || {}),
       roll_no: normalizedRoll,
       ...requestedPayload,
+      ...(certificates !== undefined ? { certificates } : {}),
+      ...(internships !== undefined ? { internships } : {}),
     };
     await storage.setItem(STORAGE_ACTIVE_SCHOLAR, JSON.stringify(updatedScholar));
 

@@ -25,6 +25,21 @@ export default function EditProfileScreen({ onBack }) {
   const [phone, setPhone] = useState(currentStudent?.phone || '');
   const [batch, setBatch] = useState(currentStudent?.batch || '');
   const [bio, setBio] = useState(currentStudent?.bio || '');
+  const [aboutMe, setAboutMe] = useState(currentStudent?.about_me || '');
+  const [headline, setHeadline] = useState(currentStudent?.headline || '');
+  const [skills, setSkills] = useState(() => {
+    const raw = currentStudent?.skills;
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {}
+      return raw.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+    return [];
+  });
+  const [newSkill, setNewSkill] = useState('');
   const [selectedCourse, setSelectedCourse] = useState(currentCourse || null);
   const [avatarAsset, setAvatarAsset] = useState(null);
   const [bannerAsset, setBannerAsset] = useState(null);
@@ -64,6 +79,9 @@ export default function EditProfileScreen({ onBack }) {
         phone: phone.trim(),
         batch: batch.trim(),
         bio: bio.trim(),
+        about_me: aboutMe.trim(),
+        headline: headline.trim(),
+        skills: skills.filter(Boolean),
         course: selectedCourse.code,
         department: selectedCourse.department,
         avatarAsset,
@@ -182,7 +200,7 @@ export default function EditProfileScreen({ onBack }) {
           />
           <Text style={styles.fieldLabel}>Professional Bio &amp; Summary</Text>
           <TextInput
-            style={[styles.input, { height: 78, textAlignVertical: 'top', paddingTop: 10 }]}
+            style={[styles.input, styles.textareaInput]}
             value={bio}
             onChangeText={setBio}
             placeholder="Write a brief professional summary about your skills & interests"
@@ -190,6 +208,83 @@ export default function EditProfileScreen({ onBack }) {
             multiline
             numberOfLines={3}
           />
+          <Text style={styles.fieldLabel}>Headline / Tagline</Text>
+          <TextInput
+            style={styles.input}
+            value={headline}
+            onChangeText={setHeadline}
+            placeholder="e.g. BCA Scholar @ RIMT | Full-Stack Developer"
+            placeholderTextColor={Colors.neutralGray}
+          />
+          <Text style={styles.fieldLabel}>About Me</Text>
+          <TextInput
+            style={[styles.input, styles.textareaInput]}
+            value={aboutMe}
+            onChangeText={setAboutMe}
+            placeholder="Tell more about yourself, your interests, and career goals"
+            placeholderTextColor={Colors.neutralGray}
+            multiline
+            numberOfLines={4}
+          />
+          <Text style={styles.fieldLabel}>Skills</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+            {skills.map((skill, idx) => (
+              <TouchableOpacity
+                key={idx}
+                onPress={() => setSkills(skills.filter((_, i) => i !== idx))}
+                activeOpacity={0.7}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4,
+                  backgroundColor: Colors.secondaryFixed,
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: Radii.full,
+                  borderWidth: 1,
+                  borderColor: Colors.border,
+                }}
+              >
+                <Text style={{ fontSize: 11, fontWeight: '600', color: Colors.secondary }}>{skill}</Text>
+                <MaterialIcons name="close" size={12} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              value={newSkill}
+              onChangeText={setNewSkill}
+              placeholder="Add a skill (e.g. React Native)"
+              placeholderTextColor={Colors.neutralGray}
+              onSubmitEditing={() => {
+                if (newSkill.trim() && !skills.includes(newSkill.trim())) {
+                  setSkills([...skills, newSkill.trim()]);
+                  setNewSkill('');
+                }
+              }}
+              returnKeyType="done"
+            />
+            <TouchableOpacity
+              style={{
+                width: 46,
+                height: 46,
+                borderRadius: Radii.md,
+                backgroundColor: Colors.secondary,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              onPress={() => {
+                if (newSkill.trim() && !skills.includes(newSkill.trim())) {
+                  setSkills([...skills, newSkill.trim()]);
+                  setNewSkill('');
+                }
+              }}
+              activeOpacity={0.8}
+            >
+              <MaterialIcons name="add" size={20} color="#ffffff" />
+            </TouchableOpacity>
+          </View>
         </ZoomCard>
 
         <View style={styles.courseSection}>
@@ -390,6 +485,14 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     fontFamily: FontFamilies.sans,
     fontSize: 14,
+  },
+  textareaInput: {
+    minHeight: 88,
+    maxHeight: 140,
+    textAlignVertical: 'top',
+    paddingTop: 12,
+    paddingBottom: 12,
+    lineHeight: 20,
   },
   courseSection: { gap: 2 },
   courseList: { gap: 9 },

@@ -5,6 +5,7 @@ import {
   getActiveScholar,
   signOutStudent,
   updateStudentProfile,
+  fetchStudentProfile,
   checkSupabaseConnection,
   hasRegisteredStudents,
   checkStudentApprovalStatus,
@@ -19,6 +20,7 @@ const AuthContext = createContext({
   signUp: async () => {},
   signOut: async () => {},
   updateProfile: async () => {},
+  refreshProfile: async () => {},
   refreshStatus: async () => {},
   checkStatusForStudent: async () => {},
   setApprovedStudent: () => {},
@@ -131,6 +133,21 @@ export const AuthProvider = ({ children }) => {
     return result;
   };
 
+  /**
+   * Refresh the current student profile from Supabase.
+   * Call this to pull admin-updated fields (CGPA, academics, etc.)
+   */
+  const handleRefreshProfile = useCallback(async () => {
+    const rollNo = currentStudent?.roll_no || currentStudent?.roll_number;
+    if (!rollNo) return null;
+
+    const freshProfile = await fetchStudentProfile(rollNo);
+    if (freshProfile) {
+      setCurrentStudent(freshProfile);
+    }
+    return freshProfile;
+  }, [currentStudent?.roll_no, currentStudent?.roll_number]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -142,6 +159,7 @@ export const AuthProvider = ({ children }) => {
         signUp: handleSignUp,
         signOut: handleSignOut,
         updateProfile: handleUpdateProfile,
+        refreshProfile: handleRefreshProfile,
         refreshStatus,
         checkStatusForStudent: handleCheckStatus,
         setApprovedStudent: handleSetApproved,
