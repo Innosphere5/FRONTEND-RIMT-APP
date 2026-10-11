@@ -18,16 +18,19 @@ import { Colors } from '../theme/tokens';
 import { useAuth } from '../context/AuthContext';
 import ZoomCard from '../components/ZoomCard';
 import ShineEffect from '../components/ShineEffect';
+import DrivePdfViewerModal from '../components/DrivePdfViewerModal';
 import {
   RESUME_TEMPLATES,
   loadSavedResumeData,
   saveResumeData,
   buildDefaultResumeData,
   exportResumeToPdf,
+  generateResumeHtml,
   printResumeDirectly,
   shareResumeFile,
-  openResumeInDrive,
-  openResumePdfViewer,
+  uploadResumePhotoToCloudinary,
+  downloadResumeToDevice,
+  prepareResumeDataForRender,
   AI_SUGGESTIONS,
 } from '../services/resumeService';
 
@@ -51,16 +54,25 @@ const ArchivalColors = {
 };
 
 export default function ResumeScreen({ onBack }) {
-  const { currentStudent } = useAuth();
+  const { currentStudent, updateProfile } = useAuth();
   const [activeTab, setActiveTab] = useState('preview'); // 'preview' | 'templates' | 'editor' | 'review' | 'ai'
   const [resumeData, setResumeData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [activeTemplateId, setActiveTemplateId] = useState('navy_ledger');
   const [activeEditorSection, setActiveEditorSection] = useState('personal'); // 'personal' | 'summary' | 'skills' | 'education' | 'experience' | 'internships' | 'languages' | 'references' | 'projects' | 'additional'
   const [aiSuggestions, setAiSuggestions] = useState(AI_SUGGESTIONS);
   const [appliedCount, setAppliedCount] = useState(0);
   const [exportSuccessModal, setExportSuccessModal] = useState(null);
+
+  // In-App Google Drive PDF Viewer State
+  const [driveViewerVisible, setDriveViewerVisible] = useState(false);
+  const [driveViewerPdfUri, setDriveViewerPdfUri] = useState(null);
+  const [driveViewerPdfBase64, setDriveViewerPdfBase64] = useState(null);
+  const [driveViewerPdfHtml, setDriveViewerPdfHtml] = useState(null);
+  const [driveViewerFileName, setDriveViewerFileName] = useState('CVForge_Resume.pdf');
 
   // Quick In-Preview Edit Modal State
   const [quickEditSection, setQuickEditSection] = useState(null);
@@ -117,11 +129,54 @@ export default function ResumeScreen({ onBack }) {
     handleUpdateResumeData((prev) => ({ ...prev, templateId }));
   };
 
+  // Process and upload picked photo to Cloudinary & update canvas
+  const processAndUploadAvatar = async (localUri) => {
+    // 1. Immediately update canvas so user sees their photo with zero delay
+    handleUpdateResumeData((prev) => ({
+      ...prev,
+      personal: { ...prev.personal, avatarUrl: localUri },
+    }));
+    setIsUploadingPhoto(true);
+
+    try {
+      const uploadRes = await uploadResumePhotoToCloudinary({ uri: localUri, rollNo });
+      if (uploadRes.success && uploadRes.url) {
+        // 2. Set permanent Cloudinary HTTPS URL
+        handleUpdateResumeData((prev) => ({
+          ...prev,
+          personal: { ...prev.personal, avatarUrl: uploadRes.url },
+        }));
+        // 3. Sync to student profile in Supabase
+        if (updateProfile) {
+          try {
+            await updateProfile({ avatar_url: uploadRes.url });
+          } catch (syncErr) {
+            console.warn('Profile sync notice:', syncErr);
+          }
+        }
+        Alert.alert(
+          '✅ Photo Uploaded to Cloudinary',
+          'Your profile picture has been safely hosted on Cloudinary and synced to your resume canvas.'
+        );
+      } else {
+        Alert.alert(
+          'Photo Added to Canvas',
+          'Photo preview active on canvas. Cloudinary notice: ' + (uploadRes.error || 'Saved locally.')
+        );
+      }
+    } catch (err) {
+      console.warn('Avatar upload exception:', err);
+      Alert.alert('Notice', 'Photo set on canvas. ' + (err.message || ''));
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
   // Image Selection (Gallery, Camera, or URL)
   const handlePickAvatarImage = () => {
     Alert.alert(
       '📷 Customize Profile Picture',
-      'Select how you would like to set your resume image. The photo will automatically adjust and crop inside the circle / portrait frame.',
+      'Select how you would like to set your resume image. The photo will automatically upload to Cloudinary and fit neatly on your resume canvas.',
       [
         {
           text: '🖼️ Choose from Gallery',
@@ -134,12 +189,7 @@ export default function ResumeScreen({ onBack }) {
                 quality: 0.9,
               });
               if (!result.canceled && result.assets && result.assets.length > 0) {
-                const newUri = result.assets[0].uri;
-                handleUpdateResumeData((prev) => ({
-                  ...prev,
-                  personal: { ...prev.personal, avatarUrl: newUri },
-                }));
-                Alert.alert('✅ Photo Updated', 'Profile photo updated and adjusted to circular frame.');
+                await processAndUploadAvatar(result.assets[0].uri);
               }
             } catch (err) {
               Alert.alert('Image Picker Error', err.message || 'Could not pick image.');
@@ -161,12 +211,7 @@ export default function ResumeScreen({ onBack }) {
                 quality: 0.9,
               });
               if (!result.canceled && result.assets && result.assets.length > 0) {
-                const newUri = result.assets[0].uri;
-                handleUpdateResumeData((prev) => ({
-                  ...prev,
-                  personal: { ...prev.personal, avatarUrl: newUri },
-                }));
-                Alert.alert('✅ Photo Updated', 'Photo captured and fitted into circular frame.');
+                await processAndUploadAvatar(result.assets[0].uri);
               }
             } catch (err) {
               Alert.alert('Camera Error', err.message || 'Could not take photo.');
@@ -278,6 +323,8 @@ export default function ResumeScreen({ onBack }) {
       if (result.success) {
         setExportSuccessModal({
           uri: result.uri,
+          base64: result.base64,
+          fileName: result.fileName,
           pages: result.numberOfPages || 1,
         });
       } else {
@@ -286,6 +333,49 @@ export default function ResumeScreen({ onBack }) {
     } catch (err) {
       setIsExporting(false);
       Alert.alert('Error', err.message || 'Export error');
+    }
+  };
+
+  // Direct High-Quality Download to Device Storage
+  const handleDownloadPdfToDevice = async () => {
+    if (!resumeData) return;
+    setIsDownloading(true);
+    try {
+      let fileUri = exportSuccessModal?.uri;
+      let base64 = exportSuccessModal?.base64;
+
+      if (!fileUri) {
+        const res = await exportResumeToPdf(resumeData, activeTemplateId);
+        if (res.success) {
+          fileUri = res.uri;
+          base64 = res.base64;
+          setExportSuccessModal({
+            uri: res.uri,
+            base64: res.base64,
+            fileName: res.fileName,
+            pages: res.numberOfPages || 1,
+          });
+        } else {
+          Alert.alert('Download Notice', res.error || 'Failed to prepare high-quality PDF.');
+          return;
+        }
+      }
+
+      const scholarName = resumeData?.personal?.name || 'Scholar';
+      const dlResult = await downloadResumeToDevice(fileUri, scholarName, base64);
+      if (dlResult.success) {
+        Alert.alert(
+          '📥 Resume Saved',
+          `Successfully prepared "${dlResult.fileName || 'CVForge_Resume.pdf'}". You can save it to your device Downloads, Files, or Google Drive.`
+        );
+      } else {
+        Alert.alert('Download Notice', dlResult.error || 'Could not save file to device.');
+      }
+    } catch (err) {
+      Alert.alert('Download Error', err.message || 'Failed to download resume.');
+    } finally {
+      setIsDownloading(false);
+      setIsExporting(false);
     }
   };
 
@@ -320,6 +410,32 @@ export default function ResumeScreen({ onBack }) {
     await shareResumeFile(fileUri, resumeData?.personal?.name || 'Scholar');
   };
 
+  // In-App Google Drive PDF Viewer Handler (Drive UI, text search, open any PDF)
+  const openDriveViewerWithResume = async (uriOverride) => {
+    try {
+      const scholarName = resumeData?.personal?.name?.trim() || 'Scholar';
+      const safeFileName = `${scholarName.replace(/[^a-zA-Z0-9_-]/g, '_')}_Resume.pdf`;
+      setDriveViewerFileName(safeFileName);
+
+      // 1. Prepare data with embedded Base64 avatar so Cloudinary / local photo renders 100% reliably in WebView
+      const preparedData = await prepareResumeDataForRender(resumeData);
+
+      // 2. Generate vector HTML for instant zero-latency rendering and DOM text search
+      const html = generateResumeHtml(preparedData, activeTemplateId);
+      setDriveViewerPdfHtml(html);
+
+      let fileUri = uriOverride || exportSuccessModal?.uri;
+      let base64 = exportSuccessModal?.base64;
+      setDriveViewerPdfUri(fileUri || null);
+      setDriveViewerPdfBase64(base64 || null);
+
+      setDriveViewerVisible(true);
+    } catch (err) {
+      console.warn('Error opening Drive PDF viewer:', err);
+      setDriveViewerVisible(true);
+    }
+  };
+
   // Open with Google Drive Handler
   const handleOpenInDrive = async (uri) => {
     let fileUri = uri || exportSuccessModal?.uri;
@@ -330,15 +446,14 @@ export default function ResumeScreen({ onBack }) {
       if (res.success) {
         setExportSuccessModal({
           uri: res.uri,
+          base64: res.base64,
+          fileName: res.fileName,
           pages: res.numberOfPages || 1,
         });
         fileUri = res.uri;
-      } else {
-        Alert.alert('Drive Error', res.error || 'Failed to prepare PDF.');
-        return;
       }
     }
-    await openResumeInDrive(fileUri);
+    openDriveViewerWithResume(fileUri);
   };
 
   // Open with System PDF Viewer Handler
@@ -351,15 +466,14 @@ export default function ResumeScreen({ onBack }) {
       if (res.success) {
         setExportSuccessModal({
           uri: res.uri,
+          base64: res.base64,
+          fileName: res.fileName,
           pages: res.numberOfPages || 1,
         });
         fileUri = res.uri;
-      } else {
-        Alert.alert('Viewer Error', res.error || 'Failed to prepare PDF.');
-        return;
       }
     }
-    await openResumePdfViewer(fileUri);
+    openDriveViewerWithResume(fileUri);
   };
 
 
@@ -625,40 +739,34 @@ export default function ResumeScreen({ onBack }) {
         {/* ============================================================= */}
         {activeTab === 'preview' && (
           <View style={styles.previewContainer}>
-            {/* Top Toolbar */}
+            {/* Top Toolbar: Template Info & Verified ATS Rating */}
             <View style={styles.previewToolbar}>
-              <View style={styles.templateInfoChip}>
-                <View style={[styles.accentDot, { backgroundColor: selectedTemplate.accent }]} />
-                <Text style={styles.templateInfoText} numberOfLines={1}>{selectedTemplate.name}</Text>
-                <Text style={styles.templateAtsScore}>({selectedTemplate.atsRating})</Text>
-              </View>
-
-              <View style={styles.toolbarRight}>
-                <ZoomCard scaleTo={1.06} onPress={handleDirectPrint}>
-                  <View style={styles.toolBtn}>
-                    <MaterialIcons name="print" size={14} color={ArchivalColors.ink} />
-                    <Text style={styles.toolBtnText}>Print</Text>
-                  </View>
-                </ZoomCard>
-
-                <ZoomCard scaleTo={1.06} onPress={() => handleSharePdf()}>
-                  <View style={styles.toolBtn}>
-                    <MaterialIcons name="share" size={14} color={ArchivalColors.ink} />
-                    <Text style={styles.toolBtnText}>Share</Text>
-                  </View>
-                </ZoomCard>
+              <View style={styles.toolbarInfoRow}>
+                <View style={styles.templateInfoChip}>
+                  <View style={[styles.accentDot, { backgroundColor: selectedTemplate.accent }]} />
+                  <Text style={styles.templateInfoText} numberOfLines={1}>
+                    {selectedTemplate.name}
+                  </Text>
+                </View>
+                <View style={styles.atsRatingBadge}>
+                  <MaterialIcons name="verified" size={13} color="#15803d" />
+                  <Text style={styles.templateAtsScore}>{selectedTemplate.atsRating || '99% ATS'}</Text>
+                </View>
               </View>
             </View>
 
             {/* Quick Helper Banner */}
             <View style={styles.previewTipBar}>
-              <MaterialIcons name="touch-app" size={14} color={Colors.primary} />
-              <Text style={styles.previewTipText}>
-                Tap any photo or section to customize text directly, or switch to Editor!
-              </Text>
+              <View style={styles.previewTipContent}>
+                <MaterialIcons name="touch-app" size={14} color={Colors.primary} style={{ marginRight: 6 }} />
+                <Text style={styles.previewTipText} numberOfLines={1}>
+                  Tap any section to edit, or customize in Editor!
+                </Text>
+              </View>
               <TouchableOpacity
                 onPress={() => setActiveTab('editor')}
                 style={styles.openEditorMiniBtn}
+                activeOpacity={0.8}
               >
                 <Text style={styles.openEditorMiniText}>Editor →</Text>
               </TouchableOpacity>
@@ -684,11 +792,21 @@ export default function ResumeScreen({ onBack }) {
                         onPress={handlePickAvatarImage}
                         style={styles.navyAvatarBox}
                       >
-                        <Image
-                          source={{ uri: resumeData.personal.avatarUrl }}
-                          style={styles.navyAvatarImg}
-                          resizeMode="cover"
-                        />
+                        {isUploadingPhoto ? (
+                          <View style={styles.avatarLoadingOverlay}>
+                            <ActivityIndicator size="small" color="#ffffff" />
+                          </View>
+                        ) : resumeData.personal?.avatarUrl ? (
+                          <Image
+                            source={{ uri: resumeData.personal.avatarUrl }}
+                            style={styles.navyAvatarImg}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <View style={styles.avatarPlaceholder}>
+                            <MaterialIcons name="person" size={34} color="#D0DBE5" />
+                          </View>
+                        )}
                         <View style={styles.avatarCameraBadge}>
                           <MaterialIcons name="photo-camera" size={10} color="#ffffff" />
                         </View>
@@ -835,11 +953,21 @@ export default function ResumeScreen({ onBack }) {
                         onPress={handlePickAvatarImage}
                         style={styles.sanchezAvatarWrap}
                       >
-                        <Image
-                          source={{ uri: resumeData.personal.avatarUrl }}
-                          style={styles.sanchezAvatarImg}
-                          resizeMode="cover"
-                        />
+                        {isUploadingPhoto ? (
+                          <View style={styles.avatarLoadingOverlay}>
+                            <ActivityIndicator size="small" color="#ffffff" />
+                          </View>
+                        ) : resumeData.personal?.avatarUrl ? (
+                          <Image
+                            source={{ uri: resumeData.personal.avatarUrl }}
+                            style={styles.sanchezAvatarImg}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <View style={styles.avatarPlaceholder}>
+                            <MaterialIcons name="person" size={32} color="#D0DBE5" />
+                          </View>
+                        )}
                         <View style={styles.avatarCameraBadge}>
                           <MaterialIcons name="photo-camera" size={10} color="#ffffff" />
                         </View>
@@ -1045,11 +1173,21 @@ export default function ResumeScreen({ onBack }) {
                         onPress={handlePickAvatarImage}
                         style={styles.waltonPhotoBox}
                       >
-                        <Image
-                          source={{ uri: resumeData.personal.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=400' }}
-                          style={styles.waltonPhotoImg}
-                          resizeMode="cover"
-                        />
+                        {isUploadingPhoto ? (
+                          <View style={styles.avatarLoadingOverlay}>
+                            <ActivityIndicator size="small" color="#1A56DB" />
+                          </View>
+                        ) : resumeData.personal?.avatarUrl ? (
+                          <Image
+                            source={{ uri: resumeData.personal.avatarUrl }}
+                            style={styles.waltonPhotoImg}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <View style={styles.avatarPlaceholder}>
+                            <MaterialIcons name="person" size={28} color="#94A3B8" />
+                          </View>
+                        )}
                         <View style={styles.avatarCameraBadge}>
                           <MaterialIcons name="photo-camera" size={10} color="#ffffff" />
                         </View>
@@ -1158,11 +1296,21 @@ export default function ResumeScreen({ onBack }) {
                         onPress={handlePickAvatarImage}
                         style={styles.singhAvatarWrap}
                       >
-                        <Image
-                          source={{ uri: resumeData.personal.avatarUrl }}
-                          style={styles.singhAvatarImg}
-                          resizeMode="cover"
-                        />
+                        {isUploadingPhoto ? (
+                          <View style={styles.avatarLoadingOverlay}>
+                            <ActivityIndicator size="small" color="#A11B24" />
+                          </View>
+                        ) : resumeData.personal?.avatarUrl ? (
+                          <Image
+                            source={{ uri: resumeData.personal.avatarUrl }}
+                            style={styles.singhAvatarImg}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <View style={styles.avatarPlaceholder}>
+                            <MaterialIcons name="person" size={30} color="#94A3B8" />
+                          </View>
+                        )}
                         <View style={styles.avatarCameraBadge}>
                           <MaterialIcons name="photo-camera" size={10} color="#ffffff" />
                         </View>
@@ -1581,16 +1729,32 @@ export default function ResumeScreen({ onBack }) {
                   {/* Photo Action Row */}
                   <View style={styles.editorPhotoRow}>
                     <View style={styles.editorAvatarBox}>
-                      <Image source={{ uri: resumeData.personal.avatarUrl }} style={styles.editorAvatarImg} />
+                      {isUploadingPhoto ? (
+                        <View style={styles.avatarLoadingOverlay}>
+                          <ActivityIndicator size="small" color={Colors.primary} />
+                        </View>
+                      ) : resumeData.personal?.avatarUrl ? (
+                        <Image source={{ uri: resumeData.personal.avatarUrl }} style={styles.editorAvatarImg} />
+                      ) : (
+                        <View style={styles.avatarPlaceholder}>
+                          <MaterialIcons name="person" size={32} color={ArchivalColors.mutedInk} />
+                        </View>
+                      )}
                     </View>
                     <View style={{ flex: 1, gap: 6 }}>
-                      <ZoomCard scaleTo={1.04} onPress={handlePickAvatarImage}>
+                      <ZoomCard scaleTo={1.04} onPress={handlePickAvatarImage} disabled={isUploadingPhoto}>
                         <View style={styles.pickPhotoBtn}>
-                          <MaterialIcons name="add-a-photo" size={16} color="#ffffff" />
-                          <Text style={styles.pickPhotoBtnText}>Change Photo (Gallery / Camera)</Text>
+                          {isUploadingPhoto ? (
+                            <ActivityIndicator size="small" color="#ffffff" />
+                          ) : (
+                            <MaterialIcons name="add-a-photo" size={16} color="#ffffff" />
+                          )}
+                          <Text style={styles.pickPhotoBtnText}>
+                            {isUploadingPhoto ? 'Uploading to Cloudinary...' : 'Change Photo (Gallery / Camera)'}
+                          </Text>
                         </View>
                       </ZoomCard>
-                      <Text style={styles.editorPhotoHint}>Any chosen photo will auto-clip cleanly inside circle.</Text>
+                      <Text style={styles.editorPhotoHint}>Hosted securely on Cloudinary · Synced to canvas & PDF.</Text>
                     </View>
                   </View>
 
@@ -2168,32 +2332,67 @@ export default function ResumeScreen({ onBack }) {
         {/* ============================================================= */}
         {activeTab === 'review' && (
           <View style={styles.previewContainer}>
-            {/* Review Header Banner */}
+            {/* Review Header Banner: Clean Two-Tier Architecture */}
             <View style={styles.reviewHeaderBanner}>
-              <View style={styles.reviewHeaderLeft}>
-                <MaterialIcons name="rate-review" size={18} color={ArchivalColors.spruce} />
-                <View style={{ marginLeft: 8, flex: 1 }}>
+              {/* Row 1: Document Info (Full Width, Never Squeezed) */}
+              <View style={styles.reviewHeaderTopRow}>
+                <View style={styles.reviewHeaderTitleGroup}>
+                  <MaterialIcons name="verified" size={17} color="#15803d" />
                   <Text style={styles.reviewHeaderTitle}>Final Resume Review</Text>
-                  <Text style={styles.reviewHeaderSub} numberOfLines={1}>Clean view without edit controls · {selectedTemplate.name}</Text>
+                  <View style={styles.reviewAtsPill}>
+                    <Text style={styles.reviewAtsPillText}>99% ATS</Text>
+                  </View>
                 </View>
+                <Text style={styles.reviewHeaderSub} numberOfLines={1}>
+                  Clean read-only ATS document · {selectedTemplate.name}
+                </Text>
               </View>
-              <View style={styles.reviewHeaderRightActions}>
-                <ZoomCard scaleTo={1.06} onPress={() => handleOpenInDrive()} disabled={isExporting}>
-                  <View style={styles.reviewDriveBtn}>
-                    <MaterialIcons name="add-to-drive" size={14} color="#ffffff" />
-                    <Text style={styles.reviewDriveBtnText}>Drive</Text>
-                  </View>
-                </ZoomCard>
-                <ZoomCard scaleTo={1.06} onPress={handleExportPdf} disabled={isExporting}>
-                  <View style={styles.reviewExportBtn}>
-                    {isExporting ? (
-                      <ActivityIndicator size="small" color="#ffffff" />
-                    ) : (
-                      <MaterialIcons name="picture-as-pdf" size={14} color="#ffffff" />
-                    )}
-                    <Text style={styles.reviewExportBtnText}>Export PDF</Text>
-                  </View>
-                </ZoomCard>
+
+              {/* Row 2: Action Buttons (Download, RIMT PDF Viewer, Export PDF) */}
+              <View style={styles.reviewHeaderActionsRow}>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={handleDownloadPdfToDevice}
+                  disabled={isDownloading}
+                  style={styles.reviewDownloadBtn}
+                >
+                  {isDownloading ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <MaterialIcons name="file-download" size={15} color="#ffffff" />
+                  )}
+                  <Text style={styles.reviewDownloadBtnText} numberOfLines={1}>Download</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => handleOpenInDrive()}
+                  style={styles.reviewDriveBtn}
+                >
+                  <MaterialIcons name="picture-as-pdf" size={15} color="#ffffff" />
+                  <Text
+                    style={styles.reviewDriveBtnText}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit={true}
+                    minimumFontScale={0.85}
+                  >
+                    RIMT PDF Viewer
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={handleExportPdf}
+                  disabled={isExporting}
+                  style={styles.reviewExportBtn}
+                >
+                  {isExporting ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <MaterialIcons name="picture-as-pdf" size={15} color="#ffffff" />
+                  )}
+                  <Text style={styles.reviewExportBtnText} numberOfLines={1}>Export PDF</Text>
+                </TouchableOpacity>
               </View>
             </View>
 
@@ -2209,7 +2408,13 @@ export default function ResumeScreen({ onBack }) {
                   <View style={styles.navyA4Sheet}>
                     <View style={styles.navySidebar}>
                       <View style={styles.navyAvatarBox}>
-                        <Image source={{ uri: resumeData.personal.avatarUrl }} style={styles.navyAvatarImg} resizeMode="cover" />
+                        {resumeData.personal?.avatarUrl ? (
+                          <Image source={{ uri: resumeData.personal.avatarUrl }} style={styles.navyAvatarImg} resizeMode="cover" />
+                        ) : (
+                          <View style={styles.avatarPlaceholder}>
+                            <MaterialIcons name="person" size={34} color="#D0DBE5" />
+                          </View>
+                        )}
                       </View>
                       <View style={styles.reviewCleanSection}>
                         <Text style={styles.navySideHeader}>👤 ABOUT ME</Text>
@@ -2288,11 +2493,17 @@ export default function ResumeScreen({ onBack }) {
                   <View style={styles.sanchezSheet}>
                     <View style={styles.sanchezHeader}>
                       <View style={styles.sanchezAvatarWrap}>
-                        <Image
-                          source={{ uri: resumeData.personal.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=400' }}
-                          style={styles.sanchezAvatarImg}
-                          resizeMode="cover"
-                        />
+                        {resumeData.personal?.avatarUrl ? (
+                          <Image
+                            source={{ uri: resumeData.personal.avatarUrl }}
+                            style={styles.sanchezAvatarImg}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <View style={styles.avatarPlaceholder}>
+                            <MaterialIcons name="person" size={32} color="#D0DBE5" />
+                          </View>
+                        )}
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.sanchezName}>{resumeData.personal.name || 'RICHARD SANCHEZ'}</Text>
@@ -2440,11 +2651,17 @@ export default function ResumeScreen({ onBack }) {
 
                       {/* Right Photo Box */}
                       <View style={styles.waltonPhotoBox}>
-                        <Image
-                          source={{ uri: resumeData.personal.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=400' }}
-                          style={styles.waltonPhotoImg}
-                          resizeMode="cover"
-                        />
+                        {resumeData.personal?.avatarUrl ? (
+                          <Image
+                            source={{ uri: resumeData.personal.avatarUrl }}
+                            style={styles.waltonPhotoImg}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <View style={styles.avatarPlaceholder}>
+                            <MaterialIcons name="person" size={28} color="#94A3B8" />
+                          </View>
+                        )}
                       </View>
                     </View>
 
@@ -2523,7 +2740,13 @@ export default function ResumeScreen({ onBack }) {
                   <View style={styles.singhSheet}>
                     <View style={styles.singhHeader}>
                       <View style={styles.singhAvatarWrap}>
-                        <Image source={{ uri: resumeData.personal.avatarUrl }} style={styles.singhAvatarImg} resizeMode="cover" />
+                        {resumeData.personal?.avatarUrl ? (
+                          <Image source={{ uri: resumeData.personal.avatarUrl }} style={styles.singhAvatarImg} resizeMode="cover" />
+                        ) : (
+                          <View style={styles.avatarPlaceholder}>
+                            <MaterialIcons name="person" size={30} color="#94A3B8" />
+                          </View>
+                        )}
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.singhName}>{resumeData.personal.name || 'SUNNY SINGH'}</Text>
@@ -3081,13 +3304,40 @@ export default function ResumeScreen({ onBack }) {
               Your institutional resume is compiled with 99% ATS standard layout.
             </Text>
             <View style={styles.modalButtonStack}>
-              {/* Option 1: Open with Google Drive */}
+              {/* Primary Action: Direct Download to Device (High Quality Vector ATS) */}
+              <TouchableOpacity
+                onPress={handleDownloadPdfToDevice}
+                style={styles.modalDownloadBtn}
+                disabled={isDownloading}
+                activeOpacity={0.85}
+              >
+                <LinearGradient
+                  colors={[Colors.primary, '#7A0E18']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.modalDownloadBtnGradient}
+                >
+                  <View style={styles.modalDownloadIconBox}>
+                    {isDownloading ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                      <MaterialIcons name="file-download" size={24} color="#ffffff" />
+                    )}
+                  </View>
+                  <View style={styles.modalDownloadTextBox}>
+                    <Text style={styles.modalDownloadBtnText}>Download Resume (High Quality)</Text>
+                    <Text style={styles.modalDownloadBtnSub}>Save directly to device · 300 DPI Vector ATS</Text>
+                  </View>
+                </LinearGradient>
+              </TouchableOpacity>
+
+              {/* Option 1: Open in RIMT PDF Viewer */}
               <TouchableOpacity
                 onPress={() => handleOpenInDrive(exportSuccessModal?.uri)}
                 style={styles.modalDriveBtn}
               >
-                <MaterialIcons name="add-to-drive" size={18} color="#ffffff" />
-                <Text style={styles.modalDriveBtnText}>Open with Google Drive</Text>
+                <MaterialIcons name="picture-as-pdf" size={18} color="#ffffff" />
+                <Text style={styles.modalDriveBtnText}>Open in RIMT PDF Viewer</Text>
               </TouchableOpacity>
 
               {/* Option 2: Open in PDF Viewer */}
@@ -3128,6 +3378,19 @@ export default function ResumeScreen({ onBack }) {
           </View>
         </View>
       </Modal>
+
+      {/* IN-APP GOOGLE DRIVE PDF VIEWER MODAL */}
+      <DrivePdfViewerModal
+        visible={driveViewerVisible}
+        pdfUri={driveViewerPdfUri}
+        pdfBase64={driveViewerPdfBase64}
+        pdfHtml={driveViewerPdfHtml}
+        fileName={driveViewerFileName}
+        studentName={resumeData?.personal?.name || 'Scholar'}
+        onClose={() => setDriveViewerVisible(false)}
+        onPrint={handleDirectPrint}
+        onDownload={handleDownloadPdfToDevice}
+      />
     </View>
   );
 }
@@ -3224,46 +3487,153 @@ const styles = StyleSheet.create({
   // TAB 1: PREVIEW
   previewContainer: { flex: 1 },
   previewToolbar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
     backgroundColor: ArchivalColors.sheet,
     borderBottomWidth: 1,
     borderBottomColor: ArchivalColors.hairline,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 10,
+    gap: 9,
   },
-  templateInfoChip: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
-  accentDot: { width: 8, height: 8, borderRadius: 4 },
-  templateInfoText: { fontSize: 12, fontWeight: '800', color: ArchivalColors.ink, maxWidth: 180 },
-  templateAtsScore: { fontSize: 10.5, fontWeight: '700', color: '#2E7D4F' },
-  toolbarRight: { flexDirection: 'row', gap: 8 },
-  toolBtn: {
+  toolbarInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  templateInfoChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+    marginRight: 8,
+  },
+  accentDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  templateInfoText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: ArchivalColors.ink,
+    flexShrink: 1,
+  },
+  atsRatingBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 5,
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  templateAtsScore: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#15803d',
+  },
+  toolbarActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    width: '100%',
+  },
+  toolBtnDownloadRed: {
+    flex: 1.15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: '#A31321', // Vibrant Institutional Red
+    paddingVertical: 9,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    shadowColor: '#A31321',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  toolBtnDownloadRedText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  toolBtnDrive: {
+    flex: 1.1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: '#E8F0FE',
+    borderWidth: 1,
+    borderColor: '#AECBFA',
+    paddingVertical: 9,
+    paddingHorizontal: 6,
+    borderRadius: 8,
+  },
+  toolBtnDriveText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#1A73E8',
+  },
+  toolBtnNeutral: {
+    flex: 0.85,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
     backgroundColor: ArchivalColors.surfaceRamp,
     borderWidth: 1,
     borderColor: ArchivalColors.hairline,
+    paddingVertical: 9,
+    paddingHorizontal: 6,
+    borderRadius: 8,
   },
-  toolBtnText: { fontSize: 11, fontWeight: '700', color: ArchivalColors.ink },
+  toolBtnNeutralText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: ArchivalColors.ink,
+  },
 
   previewTipBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'space-between',
     paddingHorizontal: 14,
-    paddingVertical: 6,
+    paddingVertical: 7,
     backgroundColor: 'rgba(163, 19, 33, 0.05)',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(163, 19, 33, 0.1)',
   },
-  previewTipText: { fontSize: 10, fontWeight: '600', color: Colors.primary, flex: 1 },
-  openEditorMiniBtn: { backgroundColor: Colors.primary, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 },
-  openEditorMiniText: { color: '#ffffff', fontSize: 9.5, fontWeight: '800' },
+  previewTipContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
+  previewTipText: {
+    fontSize: 10.5,
+    fontWeight: '600',
+    color: Colors.primary,
+    flex: 1,
+  },
+  openEditorMiniBtn: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 5,
+    flexShrink: 0,
+  },
+  openEditorMiniText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '800',
+  },
 
   paperScrollView: { flex: 1 },
   paperScrollContent: { padding: 12, paddingBottom: 90, alignItems: 'center' },
@@ -3281,7 +3651,7 @@ const styles = StyleSheet.create({
 
   // 1. Navy Executive Styles (Reference Image 1)
   navyA4Sheet: { width: '100%', flexDirection: 'row', backgroundColor: '#ffffff', borderWidth: 1, borderColor: ArchivalColors.hairline, elevation: 3, minHeight: 680, overflow: 'hidden' },
-  navySidebar: { width: '32%', backgroundColor: '#0B2545', padding: 10 },
+  navySidebar: { width: '33%', backgroundColor: '#0B2545', padding: 10 },
   navyAvatarBox: {
     width: 68,
     height: 68,
@@ -3309,24 +3679,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   navySideHeader: { fontSize: 8.5, fontWeight: '800', color: '#ffffff', marginBottom: 4, letterSpacing: 0.5 },
-  navySideText: { fontSize: 7.5, color: '#D0DBE5', marginBottom: 4, lineHeight: 11 },
-  navySkillText: { fontSize: 8, color: '#ffffff', marginBottom: 1 },
+  navySideText: { fontSize: 7.5, color: '#D0DBE5', marginBottom: 4, lineHeight: 11, flexShrink: 1 },
+  navySkillText: { fontSize: 8, color: '#ffffff', marginBottom: 1, flexShrink: 1 },
   navyBarTrack: { height: 3.5, backgroundColor: '#134074', borderRadius: 2, overflow: 'hidden', marginBottom: 4 },
   navyBarFill: { height: '100%', backgroundColor: '#1D63FF' },
-  navyMainCol: { width: '68%', backgroundColor: '#ffffff', paddingHorizontal: 12, paddingVertical: 12 },
-  navyName: { fontSize: 18, fontWeight: '900', color: '#0B2545', textTransform: 'uppercase' },
-  navyHeadline: { fontSize: 9.5, fontWeight: '700', color: '#1D63FF', marginBottom: 6 },
-  navyMetaStrip: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#E2E8F0', marginBottom: 8 },
-  navyMetaItem: { fontSize: 8, color: '#64748B' },
+  navyMainCol: { width: '67%', backgroundColor: '#ffffff', paddingHorizontal: 10, paddingVertical: 12 },
+  navyName: { fontSize: 17, fontWeight: '900', color: '#0B2545', textTransform: 'uppercase', flexShrink: 1 },
+  navyHeadline: { fontSize: 9.5, fontWeight: '700', color: '#1D63FF', marginBottom: 6, flexShrink: 1 },
+  navyMetaStrip: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#E2E8F0', marginBottom: 8 },
+  navyMetaItem: { fontSize: 8, color: '#64748B', flexShrink: 1 },
   navySectionTitle: { fontSize: 9.5, fontWeight: '800', color: '#0B2545', marginBottom: 6 },
-  navyTimelineNode: { marginBottom: 9, borderLeftWidth: 2, borderLeftColor: '#CBD5E1', paddingLeft: 8, marginLeft: 2, overflow: 'hidden' },
-  navyNodeHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 2 },
-  navyNodeTitle: { fontSize: 9.5, fontWeight: '700', color: '#0F172A', marginBottom: 2 },
+  navyTimelineNode: { marginBottom: 9, borderLeftWidth: 2, borderLeftColor: '#CBD5E1', paddingLeft: 8, marginLeft: 2, overflow: 'hidden', flexShrink: 1 },
+  navyNodeHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 4, marginBottom: 2 },
+  navyNodeTitle: { fontSize: 9.5, fontWeight: '700', color: '#0F172A', marginBottom: 2, flexShrink: 1 },
   navyScoreBadgeRow: { flexDirection: 'row', marginTop: 3 },
   navyScoreBadge: { backgroundColor: '#EEF2F6', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 3, borderWidth: 0.5, borderColor: '#CBD5E1', alignSelf: 'flex-start' },
   navyScoreBadgeText: { fontSize: 7.5, fontWeight: '800', color: '#0B2545' },
-  navyNodeInst: { fontSize: 8.5, color: '#1D63FF', fontWeight: '600', marginBottom: 1 },
-  navyNodeBullet: { fontSize: 8, color: '#475569', lineHeight: 11 },
+  navyNodeInst: { fontSize: 8.5, color: '#1D63FF', fontWeight: '600', marginBottom: 1, flexShrink: 1 },
+  navyNodeBullet: { fontSize: 8, color: '#475569', lineHeight: 11, flexShrink: 1 },
   navyDeclarationBox: { marginTop: 'auto', paddingTop: 6, borderTopWidth: 1, borderTopColor: '#CBD5E1' },
   navyDeclHeader: { fontSize: 8, fontWeight: '800', color: '#0B2545' },
   navyDeclText: { fontSize: 7.5, color: '#64748B' },
@@ -3809,8 +4179,35 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 16.5, fontWeight: '800', color: ArchivalColors.ink, textAlign: 'center' },
   modalSubtitle: { fontSize: 11.5, color: ArchivalColors.mutedInk, textAlign: 'center', marginTop: 3, marginBottom: 18, lineHeight: 16 },
   modalButtonStack: { width: '100%', gap: 8 },
+  modalDownloadBtn: {
+    borderRadius: 8,
+    overflow: 'hidden',
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  modalDownloadBtnGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    gap: 10,
+  },
+  modalDownloadIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalDownloadTextBox: { flex: 1 },
+  modalDownloadBtnText: { color: '#ffffff', fontSize: 13, fontWeight: '800' },
+  modalDownloadBtnSub: { color: 'rgba(255, 255, 255, 0.85)', fontSize: 9.5, fontWeight: '500', marginTop: 1 },
   modalDriveBtn: {
-    backgroundColor: '#0F9D58', // Google Drive emerald green
+    backgroundColor: '#1A73E8', // Royal / Google Blue
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -3828,46 +4225,131 @@ const styles = StyleSheet.create({
 
   // REVIEW TAB STYLES
   reviewHeaderBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     backgroundColor: '#F0FDF4',
     borderWidth: 1,
     borderColor: '#BBF7D0',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     marginHorizontal: 2,
-    marginBottom: 8,
+    marginBottom: 10,
+    gap: 10,
   },
-  reviewHeaderLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  reviewHeaderTitle: { fontSize: 13, fontWeight: '800', color: ArchivalColors.spruce },
-  reviewHeaderSub: { fontSize: 9.5, color: ArchivalColors.mutedInk, marginTop: 1 },
-  reviewHeaderRightActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  reviewDriveBtn: {
+  reviewHeaderTopRow: {
+    flexDirection: 'column',
+    gap: 2,
+  },
+  reviewHeaderTitleGroup: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
+  },
+  reviewHeaderTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: ArchivalColors.spruce,
+  },
+  reviewAtsPill: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+  },
+  reviewAtsPillText: {
+    color: '#15803d',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  reviewHeaderSub: {
+    fontSize: 10.5,
+    color: ArchivalColors.mutedInk,
+    marginTop: 1,
+  },
+  reviewHeaderActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  reviewDownloadBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 4,
-    backgroundColor: '#0F9D58',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 6,
-  },
-  reviewDriveBtnText: { color: '#ffffff', fontSize: 10.5, fontWeight: '800' },
-  reviewExportBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 6,
-    shadowColor: Colors.primary,
+    backgroundColor: '#8E0E1B', // Dark Red / Institutional Crimson
+    paddingVertical: 9,
+    paddingHorizontal: 6,
+    borderRadius: 8,
+    shadowColor: '#8E0E1B',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
     elevation: 2,
   },
-  reviewExportBtnText: { color: '#ffffff', fontSize: 11, fontWeight: '800' },
+  reviewDownloadBtnText: {
+    color: '#ffffff',
+    fontSize: 11.5,
+    fontWeight: '800',
+  },
+  reviewDriveBtn: {
+    flex: 1.35,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: '#1A73E8', // Blue color as requested
+    paddingVertical: 9,
+    paddingHorizontal: 6,
+    borderRadius: 8,
+    shadowColor: '#1A73E8',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  reviewDriveBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  reviewExportBtn: {
+    flex: 1.05,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: Colors.primary, // Dark Crimson Red
+    paddingVertical: 9,
+    paddingHorizontal: 6,
+    borderRadius: 8,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  reviewExportBtnText: {
+    color: '#ffffff',
+    fontSize: 11.5,
+    fontWeight: '800',
+  },
   reviewCleanSection: { marginBottom: 2 },
+
+  // Common Avatar Helpers
+  avatarLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  avatarPlaceholder: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
 });

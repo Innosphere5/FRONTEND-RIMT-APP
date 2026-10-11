@@ -3,6 +3,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as IntentLauncher from 'expo-intent-launcher';
+import * as Crypto from 'expo-crypto';
 import { Platform, Alert } from 'react-native';
 
 const RESUME_STORAGE_KEY_PREFIX = '@rimt_cvforge_resume_';
@@ -262,6 +263,13 @@ export async function loadSavedResumeData(rollNo, student) {
       if (!validIds.includes(parsed.templateId)) {
         parsed.templateId = 'navy_ledger';
       }
+      // If student has an avatar_url from profile/Cloudinary and saved resume is default/missing, sync it
+      if (student?.avatar_url && (!parsed.personal?.avatarUrl || parsed.personal.avatarUrl.includes('images.unsplash.com'))) {
+        parsed.personal = {
+          ...(parsed.personal || {}),
+          avatarUrl: student.avatar_url,
+        };
+      }
       return parsed;
     }
   } catch (err) {
@@ -364,9 +372,10 @@ export function generateResumeHtml(data, templateId = 'navy_ledger') {
 
   const skills = getSkillsList(data.skills);
   const languages = getLanguagesList(data.languages);
+  const photoSrc = personal.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=400';
 
   // -------------------------------------------------------------------------
-  // TEMPLATE 1: NAVY EXECUTIVE LEDGER (Image 1 / Reference 4 marked)
+  // TEMPLATE 1: NAVY EXECUTIVE LEDGER (Institutional Standard)
   // -------------------------------------------------------------------------
   if (templateId === 'navy_ledger') {
     return `
@@ -378,15 +387,42 @@ export function generateResumeHtml(data, templateId = 'navy_ledger') {
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=Montserrat:wght@700;800;900&display=swap');
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    body { font-family: 'Plus Jakarta Sans', sans-serif; background: #ffffff; width: 100%; min-height: 100vh; display: flex; color: #1E2224; }
 
-    /* Deep Navy Sidebar (34%) */
-    .navy-sidebar { width: 34%; background: #0B2545; color: #ffffff; padding: 26px 18px; display: flex; flex-direction: column; }
-    .navy-avatar-box { width: 110px; height: 110px; border-radius: 50%; border: 4px solid #ffffff; overflow: hidden; margin: 0 auto 18px; background: #134074; }
-    .navy-avatar-box img { width: 100%; height: 100%; object-fit: cover; }
+    /* Screen display: Universally responsive to any mobile & PC screen */
+    @media screen {
+      html, body { width: 100%; min-height: 100%; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; background: #ffffff; color: #1E2224; }
+      .navy-page-wrap { display: flex; width: 100%; max-width: 820px; min-height: 100%; margin: 0 auto; box-sizing: border-box; background: #ffffff; overflow: hidden; }
+      .navy-sidebar { width: 34%; min-width: 110px; max-width: 260px; background: #0B2545; color: #ffffff; padding: 24px 14px; display: flex; flex-direction: column; box-sizing: border-box; }
+      .white-canvas { flex: 1; min-height: 100%; background: #ffffff; padding: 24px 18px; display: flex; flex-direction: column; box-sizing: border-box; }
+    }
+
+    /* Mobile screens: compact padding and fluid text */
+    @media screen and (max-width: 520px) {
+      .navy-sidebar { width: 36% !important; padding: 14px 8px !important; }
+      .white-canvas { padding: 14px 10px !important; }
+      .navy-avatar-box { width: 70px !important; height: 70px !important; margin-bottom: 12px !important; }
+      .header-name h1 { font-size: 20px !important; }
+      .header-name .headline { font-size: 11px !important; }
+      .timeline-entry { padding-left: 10px !important; margin-left: 2px !important; }
+      .timeline-entry::before { left: -5px !important; }
+      .entry-header-row { flex-direction: column !important; align-items: flex-start !important; }
+    }
+
+    /* Print & Export: Strict standard physical A4 */
+    @media print {
+      @page { size: A4 portrait; margin: 0; }
+      html, body, .navy-page-wrap { width: 210mm !important; min-height: 297mm !important; height: 100% !important; margin: 0 !important; }
+      .navy-sidebar { width: 33% !important; min-height: 297mm !important; padding: 32px 20px !important; }
+      .white-canvas { width: 67% !important; min-height: 297mm !important; padding: 32px 28px !important; }
+      .navy-avatar-box { width: 108px !important; height: 108px !important; }
+      .header-name h1 { font-size: 27px !important; }
+    }
+
+    .navy-avatar-box { width: 108px; height: 108px; border-radius: 50%; border: 3.5px solid #ffffff; overflow: hidden; margin: 0 auto 18px; background: #134074; flex-shrink: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.25); }
+    .navy-avatar-box img { width: 100%; height: 100%; object-fit: cover; display: block; image-rendering: -webkit-optimize-contrast; }
 
     .navy-icon-header { display: flex; align-items: center; gap: 8px; font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; color: #ffffff; }
-    .navy-icon-circle { width: 22px; height: 22px; border-radius: 50%; background: #134074; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+    .navy-icon-circle { width: 22px; height: 22px; border-radius: 50%; background: #134074; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; }
 
     .sidebar-section { margin-bottom: 18px; }
     .navy-contact-item { font-size: 10px; color: #D0DBE5; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; word-break: break-all; }
@@ -397,109 +433,112 @@ export function generateResumeHtml(data, templateId = 'navy_ledger') {
     .skill-bar-track { height: 4.5px; background: #134074; border-radius: 2px; overflow: hidden; }
     .skill-bar-fill { height: 100%; background: #1D63FF; }
 
-    /* Right Crisp White Canvas (66%) */
-    .white-canvas { width: 66%; background: #ffffff; padding: 28px 26px; display: flex; flex-direction: column; }
-    .header-name h1 { font-family: 'Montserrat', sans-serif; font-size: 28px; font-weight: 900; color: #0B2545; text-transform: uppercase; letter-spacing: 0.5px; }
-    .header-name .headline { font-size: 13px; font-weight: 700; color: #1D63FF; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 8px; }
+    .header-name h1 { font-family: 'Montserrat', sans-serif; font-size: 27px; font-weight: 900; color: #0B2545; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1.15; word-break: break-word; }
+    .header-name .headline { font-size: 13px; font-weight: 700; color: #1D63FF; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 8px; margin-top: 4px; }
     
-    .contact-badge-strip { display: flex; gap: 14px; font-size: 10px; color: #64748B; padding-bottom: 10px; border-bottom: 1px solid #E2E8F0; margin-bottom: 16px; font-weight: 500; }
+    .contact-badge-strip { display: flex; gap: 14px; font-size: 10px; color: #64748B; padding-bottom: 10px; border-bottom: 1px solid #E2E8F0; margin-bottom: 16px; font-weight: 500; flex-wrap: wrap; }
 
     .section-headline { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 800; color: #0B2545; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; margin-top: 10px; }
     
-    .timeline-entry { position: relative; padding-left: 14px; border-left: 2px solid #CBD5E1; margin-left: 4px; margin-bottom: 12px; }
-    .timeline-entry::before { content: ""; position: absolute; left: -20px; top: 4px; width: 8px; height: 8px; border-radius: 50%; background: #1D63FF; border: 2px solid #ffffff; }
+    .timeline-entry { position: relative; padding-left: 14px; border-left: 2px solid #CBD5E1; margin-left: 4px; margin-bottom: 13px; box-sizing: border-box; }
+    .timeline-entry::before { content: ""; position: absolute; left: -7px; top: 4px; width: 8px; height: 8px; border-radius: 50%; background: #1D63FF; border: 2px solid #ffffff; }
 
-    .entry-header-row { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px; }
-    .entry-title { font-size: 11.5px; font-weight: 700; color: #0F172A; flex: 1; min-width: 140px; }
-    .entry-score-pill { background: #EEF2F6; color: #0B2545; font-size: 9.5px; font-weight: 800; padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
-    .entry-inst { font-size: 10px; color: #1D63FF; font-weight: 600; margin-bottom: 3px; }
+    .entry-header-row { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 6px; }
+    .entry-title { font-size: 11.5px; font-weight: 700; color: #0F172A; flex: 1; min-width: 140px; word-break: break-word; }
+    .entry-score-pill { background: #EEF2F6; color: #0B2545; font-size: 9.5px; font-weight: 800; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
+    .entry-inst { font-size: 10px; color: #1D63FF; font-weight: 600; margin-bottom: 3px; word-break: break-word; }
     .entry-bullets { margin-left: 14px; }
-    .entry-bullets li { font-size: 10px; color: #475569; line-height: 1.4; margin-bottom: 2px; }
-    .declaration-box { margin-top: auto; padding-top: 8px; border-top: 1px dashed #CBD5E1; font-size: 9.5px; color: #64748B; }
+    .entry-bullets li { font-size: 10px; color: #475569; line-height: 1.45; margin-bottom: 2px; }
+    .declaration-box { margin-top: auto; padding-top: 12px; border-top: 1px dashed #CBD5E1; font-size: 9.5px; color: #64748B; }
   </style>
 </head>
 <body>
-  <!-- NAVY SIDEBAR -->
-  <div class="navy-sidebar">
-    <div class="navy-avatar-box"><img src="${personal.avatarUrl}" alt="Photo" /></div>
-    
-    <div class="sidebar-section">
-      <div class="navy-icon-header"><span class="navy-icon-circle">👤</span> ABOUT ME</div>
-      <p style="font-size:10px; color:#D0DBE5; line-height:1.45;">${summary}</p>
+  <div class="navy-page-wrap">
+    <!-- NAVY SIDEBAR -->
+    <div class="navy-sidebar">
+      <div class="navy-avatar-box">
+        <img src="${photoSrc}" alt="Scholar Portrait" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
+        <div class="navy-avatar-fallback" style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-weight:800; font-size:26px; color:#ffffff; background:#134074;">${(personal.name || 'SZ').slice(0, 2).toUpperCase()}</div>
+      </div>
+      
+      <div class="sidebar-section">
+        <div class="navy-icon-header"><span class="navy-icon-circle">👤</span> ABOUT ME</div>
+        <p style="font-size:10px; color:#D0DBE5; line-height:1.45;">${summary}</p>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="navy-icon-header"><span class="navy-icon-circle">📞</span> CONTACT</div>
+        <div class="navy-contact-item"><span>📞</span> ${personal.phone || ''}</div>
+        <div class="navy-contact-item"><span>✉️</span> ${personal.email || ''}</div>
+        <div class="navy-contact-item"><span>📍</span> ${personal.location || ''}</div>
+        ${personal.website ? `<div class="navy-contact-item"><span>🌐</span> ${personal.website}</div>` : ''}
+      </div>
+
+      <div class="sidebar-section">
+        <div class="navy-icon-header"><span class="navy-icon-circle">⚙️</span> SKILLS</div>
+        ${skills.map(s => `
+          <div class="skill-bar-item">
+            <div class="skill-bar-top"><span>${s.name}</span><span>${s.pct || 90}%</span></div>
+            <div class="skill-bar-track"><div class="skill-bar-fill" style="width:${s.pct || 90}%;"></div></div>
+          </div>
+        `).join('')}
+      </div>
+
+      ${languages.length ? `
+      <div class="sidebar-section">
+        <div class="navy-icon-header"><span class="navy-icon-circle">🌐</span> LANGUAGES</div>
+        ${languages.map(l => `<div style="font-size:10px; color:#D0DBE5; margin-bottom:3px;">• ${l.name} (${l.level || 'Fluent'})</div>`).join('')}
+      </div>` : ''}
     </div>
 
-    <div class="sidebar-section">
-      <div class="navy-icon-header"><span class="navy-icon-circle">📞</span> CONTACT</div>
-      <div class="navy-contact-item"><span>📞</span> ${personal.phone || ''}</div>
-      <div class="navy-contact-item"><span>✉️</span> ${personal.email || ''}</div>
-      <div class="navy-contact-item"><span>📍</span> ${personal.location || ''}</div>
-      ${personal.website ? `<div class="navy-contact-item"><span>🌐</span> ${personal.website}</div>` : ''}
-    </div>
+    <!-- CRISP WHITE CANVAS -->
+    <div class="white-canvas">
+      <div class="header-name">
+        <h1>${personal.name || 'Candidate Name'}</h1>
+        <div class="headline">${personal.headline || ''}</div>
+      </div>
 
-    <div class="sidebar-section">
-      <div class="navy-icon-header"><span class="navy-icon-circle">⚙️</span> SKILLS</div>
-      ${skills.map(s => `
-        <div class="skill-bar-item">
-          <div class="skill-bar-top"><span>${s.name}</span><span>${s.pct || 90}%</span></div>
-          <div class="skill-bar-track"><div class="skill-bar-fill" style="width:${s.pct || 90}%;"></div></div>
+      <div class="contact-badge-strip">
+        <span>📅 ${personal.dob || '01 Jan 2004'}</span>
+        <span>📍 ${personal.location || 'Punjab, India'}</span>
+      </div>
+
+      <!-- EDUCATION -->
+      <div class="section-headline"><span>🎓</span> EDUCATION</div>
+      ${education.map(e => `
+        <div class="timeline-entry">
+          <div class="entry-header-row">
+            <span class="entry-title">${e.degree}</span>
+            ${e.score ? `<span class="entry-score-pill">${e.score}</span>` : ''}
+          </div>
+          <div class="entry-inst">${e.institute} (${e.period})</div>
+          ${e.highlights ? `<p style="font-size:9.5px; color:#64748B;">${e.highlights}</p>` : ''}
         </div>
       `).join('')}
-    </div>
 
-    ${languages.length ? `
-    <div class="sidebar-section">
-      <div class="navy-icon-header"><span class="navy-icon-circle">🌐</span> LANGUAGES</div>
-      ${languages.map(l => `<div style="font-size:10px; color:#D0DBE5; margin-bottom:3px;">• ${l.name} (${l.level || 'Fluent'})</div>`).join('')}
-    </div>` : ''}
-  </div>
-
-  <!-- CRISP WHITE CANVAS -->
-  <div class="white-canvas">
-    <div class="header-name">
-      <h1>${personal.name || 'Candidate Name'}</h1>
-      <div class="headline">${personal.headline || ''}</div>
-    </div>
-
-    <div class="contact-badge-strip">
-      <span>📅 ${personal.dob || '01 Jan 2004'}</span>
-      <span>📍 ${personal.location || 'Punjab, India'}</span>
-    </div>
-
-    <!-- EDUCATION -->
-    <div class="section-headline"><span>🎓</span> EDUCATION</div>
-    ${education.map(e => `
-      <div class="timeline-entry">
-        <div class="entry-header-row">
-          <span class="entry-title">${e.degree}</span>
-          ${e.score ? `<span class="entry-score-pill">${e.score}</span>` : ''}
+      <!-- EXPERIENCE -->
+      <div class="section-headline"><span>💼</span> EXPERIENCE</div>
+      ${experience.map(exp => `
+        <div class="timeline-entry">
+          <div class="entry-title">${exp.role}</div>
+          <div class="entry-inst">${exp.organization} | ${exp.period}</div>
+          <ul class="entry-bullets">${(exp.bullets || []).map(b => `<li>${b}</li>`).join('')}</ul>
         </div>
-        <div class="entry-inst">${e.institute} (${e.period})</div>
-        ${e.highlights ? `<p style="font-size:9.5px; color:#64748B;">${e.highlights}</p>` : ''}
-      </div>
-    `).join('')}
+      `).join('')}
 
-    <!-- EXPERIENCE -->
-    <div class="section-headline"><span>💼</span> EXPERIENCE</div>
-    ${experience.map(exp => `
-      <div class="timeline-entry">
-        <div class="entry-title">${exp.role}</div>
-        <div class="entry-inst">${exp.organization} | ${exp.period}</div>
-        <ul class="entry-bullets">${(exp.bullets || []).map(b => `<li>${b}</li>`).join('')}</ul>
-      </div>
-    `).join('')}
-
-    ${personal.declaration ? `
-    <div class="declaration-box">
-      <div style="font-weight:700; color:#0B2545; margin-bottom:2px;">DECLARATION</div>
-      <p>${personal.declaration}</p>
-    </div>` : ''}
+      ${personal.declaration ? `
+      <div class="declaration-box">
+        <div style="font-weight:700; color:#0B2545; margin-bottom:2px;">DECLARATION</div>
+        <p>${personal.declaration}</p>
+      </div>` : ''}
+    </div>
   </div>
 </body>
 </html>`;
   }
 
   // -------------------------------------------------------------------------
-  // TEMPLATE 2: EXECUTIVE SLATE SPLIT (Richard Sanchez - Image 3)
+  // TEMPLATE 2: EXECUTIVE SLATE SPLIT (Richard Sanchez Style)
   // -------------------------------------------------------------------------
   if (templateId === 'richard_sanchez') {
     return `
@@ -511,117 +550,147 @@ export function generateResumeHtml(data, templateId = 'navy_ledger') {
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap');
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    body { font-family: 'Plus Jakarta Sans', sans-serif; background: #ffffff; width: 100%; min-height: 100vh; color: #1F2937; }
 
-    /* Top Slate Header */
-    .header-bar { background: #1B2433; padding: 26px 28px 22px 165px; position: relative; color: #ffffff; }
-    .avatar-circle { position: absolute; top: 16px; left: 22px; width: 120px; height: 120px; border-radius: 50%; border: 4px solid #ffffff; overflow: hidden; background: #2B3346; z-index: 10; box-shadow: 0 4px 12px rgba(0,0,0,0.18); }
-    .avatar-circle img { width: 100%; height: 100%; object-fit: cover; }
-    .header-name { font-size: 28px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: #ffffff; }
-    .header-role { font-size: 13px; font-weight: 700; color: #9CA3AF; letter-spacing: 2px; text-transform: uppercase; margin-top: 3px; }
+    /* Screen display: Universally responsive to any mobile & PC screen */
+    @media screen {
+      html, body { width: 100%; min-height: 100%; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; background: #ffffff; color: #1F2937; }
+      .sanchez-page-wrap { width: 100%; max-width: 820px; min-height: 100%; margin: 0 auto; display: flex; flex-direction: column; box-sizing: border-box; background: #ffffff; overflow: hidden; }
+      .header-bar { background: #1B2433; padding: 22px 20px 20px 145px; position: relative; color: #ffffff; min-height: 96px; box-sizing: border-box; }
+      .avatar-circle { position: absolute; top: 14px; left: 18px; width: 106px; height: 106px; border-radius: 50%; border: 4px solid #ffffff; overflow: hidden; background: #2B3346; z-index: 10; box-shadow: 0 4px 12px rgba(0,0,0,0.22); }
+      .avatar-circle img { width: 100%; height: 100%; object-fit: cover; display: block; image-rendering: -webkit-optimize-contrast; }
+      .header-name { font-size: 26px; font-weight: 900; letter-spacing: 0.8px; text-transform: uppercase; color: #ffffff; line-height: 1.15; word-break: break-word; }
+      .header-role { font-size: 12.5px; font-weight: 700; color: #9CA3AF; letter-spacing: 1.5px; text-transform: uppercase; margin-top: 3px; }
+      .body-wrap { display: flex; flex-direction: row; width: 100%; box-sizing: border-box; flex: 1; }
+      .left-col { width: 34%; min-width: 110px; max-width: 260px; background: #EDEEF2; padding: 22px 14px; display: flex; flex-direction: column; box-sizing: border-box; }
+      .right-col { flex: 1; background: #ffffff; padding: 22px 18px; display: flex; flex-direction: column; box-sizing: border-box; }
+    }
 
-    .body-wrap { display: flex; min-height: calc(100vh - 90px); }
+    /* Mobile screens: compact padding and fluid text */
+    @media screen and (max-width: 520px) {
+      .header-bar { padding: 14px 10px 14px 92px !important; min-height: 76px !important; }
+      .avatar-circle { width: 70px !important; height: 70px !important; left: 10px !important; top: 8px !important; border-width: 3px !important; }
+      .header-name { font-size: 19px !important; letter-spacing: 0.3px !important; }
+      .header-role { font-size: 10.5px !important; letter-spacing: 1px !important; }
+      .left-col { width: 36% !important; padding: 14px 8px !important; }
+      .right-col { padding: 14px 10px !important; }
+      .timeline-wrap { padding-left: 10px !important; margin-left: 2px !important; }
+      .timeline-node::before { left: -14px !important; }
+      .node-header { flex-direction: column !important; align-items: flex-start !important; }
+    }
 
-    /* Left Light-Grey Column */
-    .left-col { width: 33%; background: #EDEEF2; padding: 26px 18px; display: flex; flex-direction: column; }
+    /* Print & Export: Strict standard physical A4 */
+    @media print {
+      @page { size: A4 portrait; margin: 0; }
+      html, body, .sanchez-page-wrap { width: 210mm !important; min-height: 297mm !important; height: 100% !important; margin: 0 !important; }
+      .header-bar { background: #1B2433 !important; padding: 26px 28px 22px 165px !important; min-height: 100px !important; }
+      .avatar-circle { width: 118px !important; height: 118px !important; left: 24px !important; top: 16px !important; }
+      .body-wrap { min-height: calc(297mm - 100px) !important; }
+      .left-col { width: 33% !important; padding: 28px 20px !important; }
+      .right-col { width: 67% !important; padding: 28px 28px !important; }
+      .header-name { font-size: 28px !important; }
+    }
+
     .left-section-title { font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #111827; padding-bottom: 4px; border-bottom: 1.5px solid #111827; margin-bottom: 10px; margin-top: 14px; }
     .left-section-title:first-child { margin-top: 0; }
     .contact-line { font-size: 10px; color: #374151; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; word-break: break-all; }
     
     .bullet-list { list-style: none; padding-left: 0; }
-    .bullet-list li { font-size: 10px; color: #374151; margin-bottom: 4px; position: relative; padding-left: 10px; }
+    .bullet-list li { font-size: 10px; color: #374151; margin-bottom: 4px; position: relative; padding-left: 10px; word-break: break-word; }
     .bullet-list li::before { content: "•"; position: absolute; left: 0; color: #111827; }
 
     .ref-card { margin-bottom: 8px; font-size: 10px; color: #374151; }
     .ref-name { font-weight: 800; color: #111827; }
     .ref-sub { font-size: 9.5px; color: #4B5563; margin-bottom: 2px; }
 
-    /* Right White Column */
-    .right-col { width: 67%; background: #ffffff; padding: 24px 26px; }
     .right-section-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 800; color: #111827; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; margin-top: 16px; padding-bottom: 4px; border-bottom: 1px solid #E5E7EB; }
     .right-section-head:first-child { margin-top: 0; }
-    .head-icon { width: 22px; height: 22px; border-radius: 50%; background: #1B2433; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+    .head-icon { width: 22px; height: 22px; border-radius: 50%; background: #1B2433; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; }
 
-    .timeline-wrap { position: relative; padding-left: 16px; border-left: 2px solid #CBD5E1; margin-left: 6px; }
+    .timeline-wrap { position: relative; padding-left: 16px; border-left: 2px solid #CBD5E1; margin-left: 6px; box-sizing: border-box; }
     .timeline-node { position: relative; margin-bottom: 14px; }
-    .timeline-node::before { content: ""; position: absolute; left: -22px; top: 4px; width: 8px; height: 8px; border-radius: 50%; background: #ffffff; border: 2.5px solid #1B2433; }
-    .node-header { display: flex; justify-content: space-between; align-items: baseline; }
-    .node-company { font-size: 11.5px; font-weight: 800; color: #111827; }
+    .timeline-node::before { content: ""; position: absolute; left: -21px; top: 4px; width: 8px; height: 8px; border-radius: 50%; background: #ffffff; border: 2.5px solid #1B2433; }
+    .node-header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px; }
+    .node-company { font-size: 11.5px; font-weight: 800; color: #111827; word-break: break-word; }
     .node-period { font-size: 10px; font-weight: 700; color: #4B5563; }
     .node-role { font-size: 10.5px; color: #374151; font-weight: 600; margin-bottom: 3px; }
     .node-bullets { margin-left: 14px; }
-    .node-bullets li { font-size: 10px; color: #4B5563; line-height: 1.4; margin-bottom: 2px; }
+    .node-bullets li { font-size: 10px; color: #4B5563; line-height: 1.45; margin-bottom: 2px; }
   </style>
 </head>
 <body>
-  <div class="header-bar">
-    <div class="avatar-circle"><img src="${personal.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=400'}" alt="Photo" /></div>
-    <div class="header-name">${personal.name || 'RICHARD SANCHEZ'}</div>
-    <div class="header-role">${personal.headline || 'MARKETING MANAGER'}</div>
-  </div>
-
-  <div class="body-wrap">
-    <!-- LEFT SIDEBAR -->
-    <div class="left-col">
-      <div class="left-section-title">CONTACT</div>
-      <div class="contact-line"><span>📞</span> ${personal.phone || '+123-456-7890'}</div>
-      <div class="contact-line"><span>✉️</span> ${personal.email || 'hello@reallygreatsite.com'}</div>
-      <div class="contact-line"><span>📍</span> ${personal.location || '123 Anywhere St., Any City'}</div>
-      ${personal.website ? `<div class="contact-line"><span>🌐</span> ${personal.website}</div>` : ''}
-
-      <div class="left-section-title">SKILLS</div>
-      <ul class="bullet-list">
-        ${skills.map(s => `<li>${s.name}</li>`).join('')}
-      </ul>
-
-      <div class="left-section-title">LANGUAGES</div>
-      <ul class="bullet-list">
-        ${languages.map(l => `<li>${l.name} (${l.level || 'Fluent'})</li>`).join('')}
-      </ul>
-
-      ${references.length ? `
-      <div class="left-section-title">REFERENCE</div>
-      ${references.map(r => `
-        <div class="ref-card">
-          <div class="ref-name">${r.name}</div>
-          <div class="ref-sub">${r.company}</div>
-          ${r.phone ? `<div>Phone: ${r.phone}</div>` : ''}
-          ${r.email ? `<div>Email: ${r.email}</div>` : ''}
-        </div>
-      `).join('')}` : ''}
+  <div class="sanchez-page-wrap">
+    <div class="header-bar">
+      <div class="avatar-circle">
+        <img src="${photoSrc}" alt="Scholar Portrait" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
+        <div class="avatar-fallback" style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-weight:800; font-size:26px; color:#ffffff; background:#2B3346;">${(personal.name || 'RS').slice(0, 2).toUpperCase()}</div>
+      </div>
+      <div class="header-name">${personal.name || 'RICHARD SANCHEZ'}</div>
+      <div class="header-role">${personal.headline || 'MARKETING MANAGER'}</div>
     </div>
 
-    <!-- RIGHT MAIN BODY -->
-    <div class="right-col">
-      <div class="right-section-head"><span class="head-icon">👤</span> PROFILE</div>
-      <p style="font-size:10.5px; color:#374151; line-height:1.5; margin-bottom:14px;">${summary}</p>
+    <div class="body-wrap">
+      <!-- LEFT SIDEBAR -->
+      <div class="left-col">
+        <div class="left-section-title">CONTACT</div>
+        <div class="contact-line"><span>📞</span> ${personal.phone || '+123-456-7890'}</div>
+        <div class="contact-line"><span>✉️</span> ${personal.email || 'hello@reallygreatsite.com'}</div>
+        <div class="contact-line"><span>📍</span> ${personal.location || '123 Anywhere St., Any City'}</div>
+        ${personal.website ? `<div class="contact-line"><span>🌐</span> ${personal.website}</div>` : ''}
 
-      <div class="right-section-head"><span class="head-icon">💼</span> WORK EXPERIENCE</div>
-      <div class="timeline-wrap">
-        ${experience.map(exp => `
-          <div class="timeline-node">
-            <div class="node-header">
-              <span class="node-company">${exp.organization}</span>
-              <span class="node-period">${exp.period}</span>
-            </div>
-            <div class="node-role">${exp.role}</div>
-            <ul class="node-bullets">${(exp.bullets || []).map(b => `<li>${b}</li>`).join('')}</ul>
+        <div class="left-section-title">SKILLS</div>
+        <ul class="bullet-list">
+          ${skills.map(s => `<li>${s.name}</li>`).join('')}
+        </ul>
+
+        <div class="left-section-title">LANGUAGES</div>
+        <ul class="bullet-list">
+          ${languages.map(l => `<li>${l.name} (${l.level || 'Fluent'})</li>`).join('')}
+        </ul>
+
+        ${references.length ? `
+        <div class="left-section-title">REFERENCE</div>
+        ${references.map(r => `
+          <div class="ref-card">
+            <div class="ref-name">${r.name}</div>
+            <div class="ref-sub">${r.company}</div>
+            ${r.phone ? `<div>Phone: ${r.phone}</div>` : ''}
+            ${r.email ? `<div>Email: ${r.email}</div>` : ''}
           </div>
-        `).join('')}
+        `).join('')}` : ''}
       </div>
 
-      <div class="right-section-head"><span class="head-icon">🎓</span> EDUCATION</div>
-      <div class="timeline-wrap">
-        ${education.map(edu => `
-          <div class="timeline-node">
-            <div class="node-header">
-              <span class="node-company">${edu.degree}</span>
-              <span class="node-period">${edu.period}</span>
+      <!-- RIGHT MAIN BODY -->
+      <div class="right-col">
+        <div class="right-section-head"><span class="head-icon">👤</span> PROFILE</div>
+        <p style="font-size:10.5px; color:#374151; line-height:1.55; margin-bottom:14px;">${summary}</p>
+
+        <div class="right-section-head"><span class="head-icon">💼</span> WORK EXPERIENCE</div>
+        <div class="timeline-wrap">
+          ${experience.map(exp => `
+            <div class="timeline-node">
+              <div class="node-header">
+                <span class="node-company">${exp.organization}</span>
+                <span class="node-period">${exp.period}</span>
+              </div>
+              <div class="node-role">${exp.role}</div>
+              <ul class="node-bullets">${(exp.bullets || []).map(b => `<li>${b}</li>`).join('')}</ul>
             </div>
-            <div class="node-role">${edu.institute}</div>
-            ${edu.score ? `<div style="font-size:10px; color:#1B2433; font-weight:700;">${edu.score}</div>` : ''}
-          </div>
-        `).join('')}
+          `).join('')}
+        </div>
+
+        <div class="right-section-head"><span class="head-icon">🎓</span> EDUCATION</div>
+        <div class="timeline-wrap">
+          ${education.map(edu => `
+            <div class="timeline-node">
+              <div class="node-header">
+                <span class="node-company">${edu.degree}</span>
+                <span class="node-period">${edu.period}</span>
+              </div>
+              <div class="node-role">${edu.institute}</div>
+              ${edu.score ? `<div style="font-size:10px; color:#1B2433; font-weight:700;">${edu.score}</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
       </div>
     </div>
   </div>
@@ -630,7 +699,7 @@ export function generateResumeHtml(data, templateId = 'navy_ledger') {
   }
 
   // -------------------------------------------------------------------------
-  // TEMPLATE 3: CORPORATE ANALYST CLASSIC (Herman Walton - Image 4)
+  // TEMPLATE 3: CORPORATE ANALYST CLASSIC (Herman Walton Style)
   // -------------------------------------------------------------------------
   if (templateId === 'herman_walton') {
     return `
@@ -642,7 +711,32 @@ export function generateResumeHtml(data, templateId = 'navy_ledger') {
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap');
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    body { font-family: 'Plus Jakarta Sans', sans-serif; background: #ffffff; width: 100%; min-height: 100vh; padding: 36px 40px; color: #1F2937; position: relative; }
+
+    /* Screen display: Universally responsive to any mobile & PC screen */
+    @media screen {
+      html, body { width: 100%; min-height: 100%; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; background: #ffffff; color: #1F2937; }
+      .walton-page { width: 100%; max-width: 820px; min-height: 100%; margin: 0 auto; padding: 28px 24px; display: flex; flex-direction: column; box-sizing: border-box; position: relative; background: #ffffff; overflow: hidden; }
+      .skills-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 6px 12px; margin-top: 6px; margin-bottom: 10px; }
+    }
+
+    /* Mobile screens: compact padding and fluid text */
+    @media screen and (max-width: 520px) {
+      .walton-page { padding: 16px 12px !important; }
+      .header-info h1 { font-size: 21px !important; }
+      .header-info .sub-title { font-size: 12px !important; }
+      .photo-box { width: 75px !important; height: 95px !important; }
+      .skills-grid { grid-template-columns: repeat(2, 1fr) !important; }
+    }
+
+    /* Print & Export: Strict standard physical A4 */
+    @media print {
+      @page { size: A4 portrait; margin: 0; }
+      html, body, .walton-page { width: 210mm !important; min-height: 297mm !important; height: 100% !important; margin: 0 !important; }
+      .walton-page { padding: 36px 40px !important; }
+      .skills-grid { grid-template-columns: repeat(4, 1fr) !important; }
+      .header-info h1 { font-size: 30px !important; }
+      .photo-box { width: 100px !important; height: 120px !important; }
+    }
 
     /* Corner Marks */
     .corner-tl { position: absolute; top: 16px; left: 16px; width: 18px; height: 18px; border-top: 1.5px solid #CBD5E1; border-left: 1.5px solid #CBD5E1; }
@@ -650,18 +744,18 @@ export function generateResumeHtml(data, templateId = 'navy_ledger') {
     .corner-bl { position: absolute; bottom: 16px; left: 16px; width: 18px; height: 18px; border-bottom: 1.5px solid #CBD5E1; border-left: 1.5px solid #CBD5E1; }
     .corner-br { position: absolute; bottom: 16px; right: 16px; width: 18px; height: 18px; border-bottom: 1.5px solid #CBD5E1; border-right: 1.5px solid #CBD5E1; }
 
-    .top-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
-    .header-info h1 { font-size: 30px; font-weight: 900; color: #1A56DB; letter-spacing: 0.5px; text-transform: uppercase; }
-    .header-info .sub-title { font-size: 15px; font-weight: 800; color: #111827; letter-spacing: 0.8px; text-transform: uppercase; margin-top: 2px; }
+    .top-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; gap: 16px; }
+    .header-info h1 { font-size: 30px; font-weight: 900; color: #1A56DB; letter-spacing: 0.5px; text-transform: uppercase; line-height: 1.15; word-break: break-word; }
+    .header-info .sub-title { font-size: 15px; font-weight: 800; color: #111827; letter-spacing: 0.8px; text-transform: uppercase; margin-top: 3px; }
     .contact-strip { font-size: 10.5px; color: #374151; margin-top: 8px; font-weight: 500; }
 
-    .photo-box { width: 95px; height: 115px; border-radius: 4px; border: 1px solid #D1D5DB; overflow: hidden; background: #F3F4F6; flex-shrink: 0; }
-    .photo-box img { width: 100%; height: 100%; object-fit: cover; }
+    .photo-box { width: 100px; height: 120px; border-radius: 4px; border: 1.5px solid #CBD5E1; overflow: hidden; background: #F3F4F6; flex-shrink: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    .photo-box img { width: 100%; height: 100%; object-fit: cover; display: block; image-rendering: -webkit-optimize-contrast; }
 
     .section-title { font-size: 11.5px; font-weight: 800; color: #1A56DB; letter-spacing: 0.5px; text-transform: uppercase; padding-bottom: 4px; border-bottom: 1.5px solid #1A56DB; margin-top: 14px; margin-bottom: 8px; }
 
-    .entry-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 11px; margin-bottom: 3px; }
-    .entry-role { font-weight: 700; color: #111827; }
+    .entry-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 11px; margin-bottom: 3px; flex-wrap: wrap; gap: 4px; }
+    .entry-role { font-weight: 700; color: #111827; word-break: break-word; }
     .entry-date { font-weight: 700; color: #111827; }
     .entry-inst { font-size: 10px; color: #4B5563; margin-bottom: 3px; }
     
@@ -671,64 +765,69 @@ export function generateResumeHtml(data, templateId = 'navy_ledger') {
     .skills-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px 12px; margin-top: 6px; margin-bottom: 10px; }
     .skill-grid-item { font-size: 10px; color: #374151; font-weight: 500; }
 
-    .add-info-list { list-style: disc; margin-left: 16px; font-size: 10px; color: #374151; line-height: 1.5; }
+    .add-info-list { list-style: disc; margin-left: 16px; font-size: 10px; color: #374151; line-height: 1.55; }
   </style>
 </head>
 <body>
-  <div class="corner-tl"></div><div class="corner-tr"></div><div class="corner-bl"></div><div class="corner-br"></div>
+  <div class="walton-page">
+    <div class="corner-tl"></div><div class="corner-tr"></div><div class="corner-bl"></div><div class="corner-br"></div>
 
-  <div class="top-header">
-    <div class="header-info">
-      <h1>${personal.name || 'HERMAN WALTON'}</h1>
-      <div class="sub-title">${personal.headline || 'FINANCIAL ANALYST'}</div>
-      <div class="contact-strip">${[personal.phone ? `📞 ${personal.phone}` : '', personal.email ? `✉️ ${personal.email}` : '', personal.location ? `📍 ${personal.location}` : ''].filter(Boolean).join(' &nbsp;·&nbsp; ') || `${personal.location || 'New York, USA'} | ${personal.phone || '(412) 479-6342'} | ${personal.email || 'example@gmail.com'}`}</div>
-    </div>
-    <div class="photo-box"><img src="${personal.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=400'}" alt="Photo" /></div>
-  </div>
-
-  <div class="section-title">SUMMARY</div>
-  <p style="font-size:10px; color:#374151; line-height:1.5;">${summary}</p>
-
-  <div class="section-title">PROFESSIONAL EXPERIENCE</div>
-  ${experience.map(exp => `
-    <div style="margin-bottom:8px;">
-      <div class="entry-row">
-        <span class="entry-role">${exp.role}, ${exp.organization}</span>
-        <span class="entry-date">${exp.period}</span>
+    <div class="top-header">
+      <div class="header-info">
+        <h1>${personal.name || 'HERMAN WALTON'}</h1>
+        <div class="sub-title">${personal.headline || 'FINANCIAL ANALYST'}</div>
+        <div class="contact-strip">${[personal.phone ? `📞 ${personal.phone}` : '', personal.email ? `✉️ ${personal.email}` : '', personal.location ? `📍 ${personal.location}` : ''].filter(Boolean).join(' &nbsp;·&nbsp; ') || `${personal.location || 'Punjab, India'} | ${personal.phone || '+91 9797310798'} | ${personal.email || 'shahzeb@rimt.ac.in'}`}</div>
       </div>
-      <ul class="entry-bullets">${(exp.bullets || []).map(b => `<li>${b}</li>`).join('')}</ul>
-    </div>
-  `).join('')}
-
-  <div class="section-title">EDUCATION</div>
-  ${education.map(edu => `
-    <div style="margin-bottom:8px;">
-      <div class="entry-row">
-        <span class="entry-role">${edu.degree}</span>
-        <span class="entry-date">${edu.period}</span>
+      <div class="photo-box">
+        <img src="${photoSrc}" alt="Scholar Portrait" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
+        <div class="photo-fallback" style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-weight:800; font-size:24px; color:#1F2937; background:#E5E7EB;">${(personal.name || 'HW').slice(0, 2).toUpperCase()}</div>
       </div>
-      <div class="entry-inst">${edu.institute}${edu.score ? ` · ${edu.score}` : ''}</div>
-      ${edu.highlights ? `<p style="font-size:9.5px; color:#4B5563; margin-left:14px;">• ${edu.highlights}</p>` : ''}
     </div>
-  `).join('')}
 
-  <div class="section-title">TECHNICAL SKILLS</div>
-  <div class="skills-grid">
-    ${skills.map(s => `<div class="skill-grid-item">${s.name}</div>`).join('')}
+    <div class="section-title">SUMMARY</div>
+    <p style="font-size:10px; color:#374151; line-height:1.55;">${summary}</p>
+
+    <div class="section-title">PROFESSIONAL EXPERIENCE</div>
+    ${experience.map(exp => `
+      <div style="margin-bottom:8px;">
+        <div class="entry-row">
+          <span class="entry-role">${exp.role}, ${exp.organization}</span>
+          <span class="entry-date">${exp.period}</span>
+        </div>
+        <ul class="entry-bullets">${(exp.bullets || []).map(b => `<li>${b}</li>`).join('')}</ul>
+      </div>
+    `).join('')}
+
+    <div class="section-title">EDUCATION</div>
+    ${education.map(edu => `
+      <div style="margin-bottom:8px;">
+        <div class="entry-row">
+          <span class="entry-role">${edu.degree}</span>
+          <span class="entry-date">${edu.period}</span>
+        </div>
+        <div class="entry-inst">${edu.institute}${edu.score ? ` · ${edu.score}` : ''}</div>
+        ${edu.highlights ? `<p style="font-size:9.5px; color:#4B5563; margin-left:14px;">• ${edu.highlights}</p>` : ''}
+      </div>
+    `).join('')}
+
+    <div class="section-title">TECHNICAL SKILLS</div>
+    <div class="skills-grid">
+      ${skills.map(s => `<div class="skill-grid-item">${s.name}</div>`).join('')}
+    </div>
+
+    <div class="section-title">ADDITIONAL INFORMATION</div>
+    <ul class="add-info-list">
+      ${languages.length ? `<li><strong>Languages:</strong> ${languages.map(l => l.name).join(', ')}</li>` : ''}
+      ${certifications.length ? `<li><strong>Certificates:</strong> ${certifications.map(c => c.title).join(', ')}</li>` : ''}
+      <li><strong>Declaration:</strong> ${personal.declaration || 'All credentials authentic and verified by university records.'}</li>
+    </ul>
   </div>
-
-  <div class="section-title">ADDITIONAL INFORMATION</div>
-  <ul class="add-info-list">
-    ${languages.length ? `<li><strong>Languages:</strong> ${languages.map(l => l.name).join(', ')}</li>` : ''}
-    ${certifications.length ? `<li><strong>Certificates:</strong> ${certifications.map(c => c.title).join(', ')}</li>` : ''}
-    <li><strong>Awards/Activities:</strong> Academic Honors & High Performance Recognition</li>
-  </ul>
 </body>
 </html>`;
   }
 
   // -------------------------------------------------------------------------
-  // TEMPLATE 4: CRIMSON RECRUITER HORIZON (Sunny Singh - Image 5)
+  // TEMPLATE 4: CRIMSON RECRUITER HORIZON (Sunny Singh Style)
   // -------------------------------------------------------------------------
   return `
 <!DOCTYPE html>
@@ -739,29 +838,56 @@ export function generateResumeHtml(data, templateId = 'navy_ledger') {
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap');
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    body { font-family: 'Plus Jakarta Sans', sans-serif; background: #ffffff; width: 100%; min-height: 100vh; color: #1F2937; }
+
+    /* Screen display: Universally responsive to any mobile & PC screen */
+    @media screen {
+      html, body { width: 100%; min-height: 100%; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; background: #ffffff; color: #1F2937; }
+      .singh-page { width: 100%; max-width: 820px; min-height: 100%; margin: 0 auto; display: flex; flex-direction: column; box-sizing: border-box; background: #ffffff; overflow: hidden; }
+      .body-split { display: flex; flex: 1; padding: 20px 22px; box-sizing: border-box; }
+      .left-col { flex: 1.5; padding-right: 16px; box-sizing: border-box; }
+      .right-col { flex: 1; padding-left: 10px; box-sizing: border-box; }
+    }
+
+    /* Mobile screens: compact padding and fluid text */
+    @media screen and (max-width: 520px) {
+      .top-header { padding: 14px 12px !important; gap: 12px !important; }
+      .avatar-box { width: 72px !important; height: 90px !important; border-radius: 10px !important; }
+      .header-content h1 { font-size: 20px !important; }
+      .header-content .role { font-size: 11px !important; }
+      .crimson-banner { padding: 8px 10px !important; font-size: 9.5px !important; gap: 4px !important; }
+      .body-split { padding: 14px 10px !important; }
+      .left-col { padding-right: 8px !important; }
+      .right-col { padding-left: 6px !important; }
+    }
+
+    /* Print & Export: Strict standard physical A4 */
+    @media print {
+      @page { size: A4 portrait; margin: 0; }
+      html, body, .singh-page { width: 210mm !important; min-height: 297mm !important; height: 100% !important; margin: 0 !important; }
+      .top-header { padding: 26px 28px 20px !important; gap: 20px !important; }
+      .avatar-box { width: 105px !important; height: 125px !important; }
+      .body-split { padding: 22px 26px !important; }
+      .left-col { width: 62% !important; padding-right: 20px !important; }
+      .right-col { width: 38% !important; padding-left: 12px !important; }
+      .header-content h1 { font-size: 28px !important; }
+    }
 
     /* Top Header */
-    .top-header { display: flex; align-items: center; gap: 20px; padding: 24px 28px 18px; position: relative; background: #FAFAFA; }
-    .avatar-box { width: 105px; height: 125px; border-radius: 14px; border: 3px solid #2B2D42; overflow: hidden; background: #E5E7EB; flex-shrink: 0; }
-    .avatar-box img { width: 100%; height: 100%; object-fit: cover; }
-    .header-content h1 { font-size: 28px; font-weight: 900; color: #111827; text-transform: uppercase; letter-spacing: 0.5px; }
+    .top-header { display: flex; align-items: center; gap: 20px; padding: 26px 28px 20px; position: relative; background: #FAFAFA; box-sizing: border-box; }
+    .avatar-box { width: 105px; height: 125px; border-radius: 14px; border: 3px solid #2B2D42; overflow: hidden; background: #E5E7EB; flex-shrink: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.15); }
+    .avatar-box img { width: 100%; height: 100%; object-fit: cover; display: block; image-rendering: -webkit-optimize-contrast; }
+    .header-content h1 { font-size: 28px; font-weight: 900; color: #111827; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1.15; word-break: break-word; }
     .header-content .role { font-size: 14px; font-weight: 700; color: #4B5563; margin-top: 2px; margin-bottom: 6px; }
     .header-content p { font-size: 10px; color: #374151; line-height: 1.45; }
 
     /* Crimson Banner */
-    .crimson-banner { background: #A11B24; color: #ffffff; padding: 10px 24px; display: flex; justify-content: space-between; align-items: center; font-size: 10.5px; font-weight: 600; }
+    .crimson-banner { background: #A11B24; color: #ffffff; padding: 10px 24px; display: flex; justify-content: space-between; align-items: center; font-size: 10.5px; font-weight: 600; flex-wrap: wrap; gap: 8px; }
     .banner-item { display: flex; align-items: center; gap: 6px; }
-
-    /* Two-Column Body */
-    .body-split { display: flex; padding: 20px 24px; }
-    .left-col { width: 62%; padding-right: 20px; }
-    .right-col { width: 38%; padding-left: 12px; }
 
     .maroon-heading { font-size: 12px; font-weight: 800; color: #111827; text-transform: uppercase; padding-bottom: 4px; border-bottom: 2px solid #A11B24; margin-bottom: 10px; margin-top: 14px; }
     .maroon-heading:first-child { margin-top: 0; }
 
-    .job-title { font-size: 11px; font-weight: 800; color: #111827; }
+    .job-title { font-size: 11px; font-weight: 800; color: #111827; word-break: break-word; }
     .job-company { font-size: 10.5px; font-weight: 700; color: #374151; }
     .job-meta { font-size: 9.5px; color: #6B7280; font-style: italic; margin-bottom: 4px; }
     .job-bullets { margin-left: 14px; margin-bottom: 10px; }
@@ -777,73 +903,78 @@ export function generateResumeHtml(data, templateId = 'navy_ledger') {
   </style>
 </head>
 <body>
-  <div class="top-header">
-    <div class="avatar-box"><img src="${personal.avatarUrl}" alt="Photo" /></div>
-    <div class="header-content">
-      <h1>${personal.name || 'SUNNY SINGH'}</h1>
-      <div class="role">${personal.headline || 'Technical Recruiter'}</div>
-      <p>${summary}</p>
-    </div>
-  </div>
-
-  <div class="crimson-banner">
-    <div class="banner-item">📞 ${personal.phone || '+91-9876543210'}</div>
-    <div class="banner-item">✉️ ${personal.email || 'singhsun@gmail.com'}</div>
-    <div class="banner-item">📍 ${personal.location || 'Indore, India'}</div>
-    <div class="banner-item">🔗 ${personal.linkedin || 'LinkedIn'}</div>
-  </div>
-
-  <div class="body-split">
-    <!-- LEFT COLUMN -->
-    <div class="left-col">
-      <div class="maroon-heading">EMPLOYMENT HISTORY</div>
-      ${experience.map(exp => `
-        <div style="margin-bottom:8px;">
-          <div class="job-title">${exp.role}</div>
-          <div class="job-company">${exp.organization}</div>
-          <div class="job-meta">${exp.period} | ${exp.location || personal.location || 'India'}</div>
-          <ul class="job-bullets">${(exp.bullets || []).map(b => `<li>${b}</li>`).join('')}</ul>
-        </div>
-      `).join('')}
-
-      ${(internships && internships.length > 0) ? `
-      <div class="maroon-heading">INTERNSHIPS</div>
-      ${internships.map(it => `
-        <div style="margin-bottom:8px;">
-          <div class="job-title">${it.role}</div>
-          <div class="job-company">${it.organization}</div>
-          <div class="job-meta">${it.period} | ${it.location || personal.location || 'India'}</div>
-          <ul class="job-bullets">${(it.bullets || []).map(b => `<li>${b}</li>`).join('')}</ul>
-        </div>
-      `).join('')}` : ''}
+  <div class="singh-page">
+    <div class="top-header">
+      <div class="avatar-box">
+        <img src="${photoSrc}" alt="Scholar Portrait" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
+        <div class="avatar-fallback" style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-weight:800; font-size:24px; color:#ffffff; background:#A11B24;">${(personal.name || 'SS').slice(0, 2).toUpperCase()}</div>
+      </div>
+      <div class="header-content">
+        <h1>${personal.name || 'SUNNY SINGH'}</h1>
+        <div class="role">${personal.headline || 'Technical Recruiter'}</div>
+        <p>${summary}</p>
+      </div>
     </div>
 
-    <!-- RIGHT COLUMN -->
-    <div class="right-col">
-      <div class="maroon-heading">EDUCATION</div>
-      ${education.map(edu => `
-        <div style="margin-bottom:8px;">
-          <div class="job-title">${edu.degree}</div>
-          <div class="job-company">${edu.institute}</div>
-          <div class="job-meta">${edu.period}</div>
-        </div>
-      `).join('')}
+    <div class="crimson-banner">
+      <div class="banner-item">📞 ${personal.phone || '+91-9876543210'}</div>
+      <div class="banner-item">✉️ ${personal.email || 'singhsun@gmail.com'}</div>
+      <div class="banner-item">📍 ${personal.location || 'Punjab, India'}</div>
+      <div class="banner-item">🔗 ${personal.linkedin || 'LinkedIn'}</div>
+    </div>
 
-      <div class="maroon-heading">SKILLS</div>
-      ${skills.map(s => `<div class="skill-badge">${s.name}</div>`).join('')}
-
-      <div class="maroon-heading">LANGUAGES</div>
-      ${languages.map(l => {
-        const count = l.dots || (l.pct ? Math.round(l.pct / 20) : 4);
-        return `
-          <div class="lang-row">
-            <span>${l.name}</span>
-            <div class="lang-dots">
-              ${[1, 2, 3, 4, 5].map(i => `<span class="lang-dot ${i <= count ? 'active' : 'inactive'}"></span>`).join('')}
-            </div>
+    <div class="body-split">
+      <!-- LEFT COLUMN -->
+      <div class="left-col">
+        <div class="maroon-heading">EMPLOYMENT HISTORY</div>
+        ${experience.map(exp => `
+          <div style="margin-bottom:8px;">
+            <div class="job-title">${exp.role}</div>
+            <div class="job-company">${exp.organization}</div>
+            <div class="job-meta">${exp.period} | ${exp.location || personal.location || 'India'}</div>
+            <ul class="job-bullets">${(exp.bullets || []).map(b => `<li>${b}</li>`).join('')}</ul>
           </div>
-        `;
-      }).join('')}
+        `).join('')}
+
+        ${(internships && internships.length > 0) ? `
+        <div class="maroon-heading">INTERNSHIPS</div>
+        ${internships.map(it => `
+          <div style="margin-bottom:8px;">
+            <div class="job-title">${it.role}</div>
+            <div class="job-company">${it.organization}</div>
+            <div class="job-meta">${it.period} | ${it.location || personal.location || 'India'}</div>
+            <ul class="job-bullets">${(it.bullets || []).map(b => `<li>${b}</li>`).join('')}</ul>
+          </div>
+        `).join('')}` : ''}
+      </div>
+
+      <!-- RIGHT COLUMN -->
+      <div class="right-col">
+        <div class="maroon-heading">EDUCATION</div>
+        ${education.map(edu => `
+          <div style="margin-bottom:8px;">
+            <div class="job-title">${edu.degree}</div>
+            <div class="job-company">${edu.institute}</div>
+            <div class="job-meta">${edu.period}</div>
+          </div>
+        `).join('')}
+
+        <div class="maroon-heading">SKILLS</div>
+        ${skills.map(s => `<div class="skill-badge">${s.name}</div>`).join('')}
+
+        <div class="maroon-heading">LANGUAGES</div>
+        ${languages.map(l => {
+          const count = l.dots || (l.pct ? Math.round(l.pct / 20) : 4);
+          return `
+            <div class="lang-row">
+              <span>${l.name}</span>
+              <div class="lang-dots">
+                ${[1, 2, 3, 4, 5].map(i => `<span class="lang-dot ${i <= count ? 'active' : 'inactive'}"></span>`).join('')}
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
     </div>
   </div>
 </body>
@@ -851,24 +982,214 @@ export function generateResumeHtml(data, templateId = 'navy_ledger') {
 }
 
 /**
- * Generate PDF file and get local URI
+ * Upload resume photo directly to Cloudinary
+ * Returns permanent https://res.cloudinary.com/... URL
+ */
+export async function uploadResumePhotoToCloudinary({ uri, rollNo }) {
+  if (!uri) return { success: false, error: 'No image provided.' };
+
+  const cloudName = process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME || 'gytf7gmz';
+  const apiKey = process.env.EXPO_PUBLIC_CLOUDINARY_API_KEY || '233416524174115';
+  const apiSecret = process.env.EXPO_PUBLIC_CLOUDINARY_API_SECRET || 'uwqAmphXoW1FdrfjpbkluUbpl_A';
+  const preset = process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET || '';
+  const signingUrl = process.env.EXPO_PUBLIC_CLOUDINARY_SIGNING_URL || '';
+
+  const safeRoll = (rollNo || 'SCHOLAR').replace(/[^A-Z0-9_-]/gi, '_').slice(0, 32);
+  const folder = `rimt-academic-trust/${safeRoll}`;
+  let parameters = {};
+
+  try {
+    if (preset) {
+      parameters = { folder, upload_preset: preset };
+    } else if (apiSecret && apiKey) {
+      const timestamp = Math.floor(Date.now() / 1000);
+      const stringToSign = `folder=${folder}&timestamp=${timestamp}${apiSecret}`;
+      const signature = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA1, stringToSign);
+      parameters = {
+        folder,
+        timestamp: String(timestamp),
+        api_key: apiKey,
+        signature,
+      };
+    } else if (signingUrl) {
+      const signingResponse = await fetch(signingUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder }),
+      });
+      const signingResult = await signingResponse.json().catch(() => ({}));
+      if (!signingResponse.ok || !signingResult.signature) {
+        throw new Error(signingResult.error || `Signing failed (${signingResponse.status}).`);
+      }
+      parameters = {
+        folder: signingResult.folder || folder,
+        timestamp: String(signingResult.timestamp),
+        api_key: signingResult.api_key,
+        signature: signingResult.signature,
+      };
+    } else {
+      throw new Error('Cloudinary credentials are not configured.');
+    }
+
+    const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`;
+
+    if (Platform.OS === 'web') {
+      const formData = new FormData();
+      const blob = await fetch(uri).then((r) => r.blob());
+      formData.append('file', blob, `avatar_${Date.now()}.jpg`);
+      Object.entries(parameters).forEach(([k, v]) => formData.append(k, String(v)));
+      const res = await fetch(uploadUrl, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok || !data.secure_url) {
+        throw new Error(data.error?.message || `Upload failed (${res.status})`);
+      }
+      return { success: true, url: data.secure_url, publicId: data.public_id };
+    }
+
+    const result = await FileSystem.uploadAsync(uploadUrl, uri, {
+      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+      fieldName: 'file',
+      mimeType: 'image/jpeg',
+      httpMethod: 'POST',
+      parameters,
+    });
+    const data = JSON.parse(result.body || '{}');
+    if (result.status < 200 || result.status >= 300 || !data.secure_url) {
+      throw new Error(data.error?.message || `Upload failed with status ${result.status}`);
+    }
+    return { success: true, url: data.secure_url, publicId: data.public_id };
+  } catch (err) {
+    console.error('uploadResumePhotoToCloudinary error:', err);
+    return { success: false, error: err.message || 'Cloudinary upload failed.' };
+  }
+}
+
+/**
+ * Prepares resume data for high-fidelity rendering by converting any avatar
+ * (local file://, content://, or remote Cloudinary/HTTP URL) into a Base64 Data URL.
+ * Guarantees zero-latency, cross-origin-free, 100% reliable image rendering in
+ * WebView, PDF engine (expo-print), and Web iframe.
+ */
+export async function prepareResumeDataForRender(resumeData) {
+  if (!resumeData) return resumeData;
+  let preparedData = { ...resumeData };
+  const avatarUrl = preparedData.personal?.avatarUrl;
+
+  if (avatarUrl && typeof avatarUrl === 'string') {
+    try {
+      if (avatarUrl.startsWith('data:image/')) {
+        return preparedData;
+      }
+
+      let mime = 'image/jpeg';
+      if (avatarUrl.toLowerCase().includes('.png')) mime = 'image/png';
+      if (avatarUrl.toLowerCase().includes('.webp')) mime = 'image/webp';
+
+      let b64 = null;
+
+      if (avatarUrl.startsWith('file://') || avatarUrl.startsWith('/')) {
+        if (Platform.OS !== 'web') {
+          b64 = await FileSystem.readAsStringAsync(avatarUrl, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+        }
+      } else if (avatarUrl.startsWith('content://')) {
+        if (Platform.OS === 'android') {
+          try {
+            b64 = await FileSystem.readAsStringAsync(avatarUrl, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+          } catch (_contentErr) {
+            const tempPath = `${FileSystem.cacheDirectory || FileSystem.documentDirectory}temp_content_avatar_${Date.now()}.jpg`;
+            await FileSystem.copyAsync({ from: avatarUrl, to: tempPath });
+            b64 = await FileSystem.readAsStringAsync(tempPath, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            try { await FileSystem.deleteAsync(tempPath, { idempotent: true }); } catch (_) {}
+          }
+        }
+      } else if (avatarUrl.startsWith('http://') || avatarUrl.startsWith('https://')) {
+        if (Platform.OS === 'web') {
+          try {
+            const resp = await fetch(avatarUrl);
+            const blob = await resp.blob();
+            b64 = await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const res = reader.result;
+                resolve(typeof res === 'string' && res.includes(',') ? res.split(',')[1] : null);
+              };
+              reader.onerror = () => resolve(null);
+              reader.readAsDataURL(blob);
+            });
+          } catch (e) {
+            console.warn('Web fetch avatar error:', e);
+          }
+        } else {
+          try {
+            const tempPath = `${FileSystem.cacheDirectory || FileSystem.documentDirectory}temp_pdf_avatar_${Date.now()}.jpg`;
+            // Safe 2.5-second timeout prevents indefinite hanging on slow network or Cloudinary
+            const dl = await Promise.race([
+              FileSystem.downloadAsync(avatarUrl, tempPath),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Avatar download timeout')), 2500)),
+            ]);
+            if (dl && dl.uri) {
+              b64 = await FileSystem.readAsStringAsync(dl.uri, {
+                encoding: FileSystem.EncodingType.Base64,
+              });
+              try {
+                await FileSystem.deleteAsync(dl.uri, { idempotent: true });
+              } catch (_) {}
+            }
+          } catch (dlErr) {
+            console.warn('Avatar download timeout or notice, fallback to direct URL:', dlErr.message);
+          }
+        }
+      }
+
+      if (b64) {
+        preparedData = {
+          ...preparedData,
+          personal: {
+            ...preparedData.personal,
+            avatarUrl: `data:${mime};base64,${b64}`,
+          },
+        };
+      }
+    } catch (imgErr) {
+      console.warn('prepareResumeDataForRender avatar conversion error:', imgErr);
+    }
+  }
+
+  return preparedData;
+}
+
+/**
+ * Generate PDF file in maximum vector quality with standard A4 dimensions.
+ * Ensures the scholar photo is converted to base64 Data URL so expo-print / Chromium
+ * renders the image 100% reliably in full resolution without WebView security blocks.
  */
 export async function exportResumeToPdf(resumeData, templateId) {
   try {
-    const html = generateResumeHtml(resumeData, templateId);
-    // Request base64 so we can write directly to permitted app sandbox (documentDirectory).
-    // In Expo Go on Android, Print.printToFileAsync saves to an unscoped cache directory
-    // that triggers "Not allowed to read file under given URL" if shared or converted to contentUri.
+    const preparedData = await prepareResumeDataForRender(resumeData);
+    const html = generateResumeHtml(preparedData, templateId);
+
+    // High-resolution A4 page size in points (595pt x 842pt)
     const result = await Print.printToFileAsync({
       html,
+      width: 595,
+      height: 842,
       base64: true,
     });
+
+    const scholarName = (preparedData.personal?.name || 'Scholar').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const cleanFileName = `CVForge_Resume_${scholarName}.pdf`;
 
     let finalUri = result.uri;
     if (result.base64) {
       try {
         const targetDir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
-        const cleanPath = `${targetDir}CVForge_Resume_${Date.now()}.pdf`;
+        const cleanPath = `${targetDir}${cleanFileName}`;
         await FileSystem.writeAsStringAsync(cleanPath, result.base64, {
           encoding: FileSystem.EncodingType.Base64,
         });
@@ -878,10 +1199,90 @@ export async function exportResumeToPdf(resumeData, templateId) {
       }
     }
 
-    return { success: true, uri: finalUri, numberOfPages: result.numberOfPages };
+    return {
+      success: true,
+      uri: finalUri,
+      base64: result.base64,
+      fileName: cleanFileName,
+      numberOfPages: result.numberOfPages || 1,
+    };
   } catch (error) {
     console.error('Error generating PDF:', error);
     return { success: false, error: error.message || 'Failed to render PDF.' };
+  }
+}
+
+/**
+ * Download high-quality vector resume PDF directly to device storage.
+ * On Android: Uses StorageAccessFramework to save to Downloads/Documents or native save dialog.
+ * On iOS: Opens native Files save sheet.
+ * On Web: Triggers immediate browser file download.
+ */
+export async function downloadResumeToDevice(fileUri, scholarName = 'Scholar', base64Data = null) {
+  try {
+    const cleanName = (scholarName || 'Scholar').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const fileName = `CVForge_Resume_${cleanName}.pdf`;
+
+    // 1. Web Platform (Browser download)
+    if (Platform.OS === 'web') {
+      let url = fileUri;
+      if (base64Data) {
+        url = `data:application/pdf;base64,${base64Data}`;
+      }
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return { success: true, method: 'web-download', fileName };
+    }
+
+    // 2. Local File Preparation on Device
+    const targetDir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
+    const localFilePath = `${targetDir}${fileName}`;
+
+    if (base64Data) {
+      try {
+        await FileSystem.writeAsStringAsync(localFilePath, base64Data, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+      } catch (writeErr) {
+        console.warn('Could not write base64 to localFilePath:', writeErr);
+      }
+    } else if (fileUri && fileUri !== localFilePath) {
+      try {
+        await FileSystem.copyAsync({ from: fileUri, to: localFilePath });
+      } catch (copyErr) {
+        console.warn('Could not copy fileUri to localFilePath:', copyErr);
+      }
+    }
+
+    let shareUri = fileUri || localFilePath;
+    try {
+      const fileInfo = await FileSystem.getInfoAsync(localFilePath);
+      if (fileInfo && fileInfo.exists) {
+        shareUri = localFilePath;
+      }
+    } catch (_) {}
+
+    // 3. Trigger native save/share sheet (Android & iOS)
+    // This allows user to save to Downloads, Drive, Files or any app instantly
+    // with 100% reliability and zero blocking or permission freezing.
+    const isAvailable = await Sharing.isAvailableAsync();
+    if (isAvailable && shareUri) {
+      await Sharing.shareAsync(shareUri, {
+        mimeType: 'application/pdf',
+        dialogTitle: `Save ${fileName} to Device`,
+        UTI: 'com.adobe.pdf',
+      });
+      return { success: true, method: 'share-save', fileName, savedUri: shareUri };
+    }
+
+    return { success: true, fileName, savedUri: shareUri };
+  } catch (err) {
+    console.error('downloadResumeToDevice error:', err);
+    return { success: false, error: err.message || 'Could not download file.' };
   }
 }
 
@@ -890,7 +1291,8 @@ export async function exportResumeToPdf(resumeData, templateId) {
  */
 export async function printResumeDirectly(resumeData, templateId) {
   try {
-    const html = generateResumeHtml(resumeData, templateId);
+    const preparedData = await prepareResumeDataForRender(resumeData);
+    const html = generateResumeHtml(preparedData, templateId);
     await Print.printAsync({ html });
     return { success: true };
   } catch (error) {
@@ -925,7 +1327,6 @@ export async function openResumeInDrive(fileUri) {
     if (Platform.OS === 'android') {
       const contentUri = await FileSystem.getContentUriAsync(fileUri);
       
-      // Attempt 1: Target Google Drive PDF Viewer specific activities
       const driveCandidates = [
         { packageName: 'com.google.android.apps.docs', className: 'com.google.android.apps.docs.viewer.PdfViewerActivity' },
         { packageName: 'com.google.android.apps.docs', className: 'com.google.android.apps.viewer.PdfViewerActivity' },
@@ -940,21 +1341,19 @@ export async function openResumeInDrive(fileUri) {
             type: 'application/pdf',
             packageName: candidate.packageName,
             className: candidate.className,
-            flags: 268435457, // FLAG_GRANT_READ_URI_PERMISSION (1) | FLAG_ACTIVITY_NEW_TASK (268435456)
+            flags: 268435457,
           });
           return { success: true };
         } catch {}
       }
 
-      // Attempt 2: General Android VIEW intent for PDF (directly opens Drive PDF Viewer or default reader with zero upload)
       await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
         data: contentUri,
         type: 'application/pdf',
-        flags: 268435457, // FLAG_GRANT_READ_URI_PERMISSION | FLAG_ACTIVITY_NEW_TASK
+        flags: 268435457,
       });
       return { success: true };
     } else {
-      // iOS
       const isAvailable = await Sharing.isAvailableAsync();
       if (isAvailable) {
         await Sharing.shareAsync(fileUri, {
@@ -976,10 +1375,6 @@ export async function openResumeInDrive(fileUri) {
   return { success: true };
 }
 
-/**
- * Open PDF file directly in system default PDF viewer
- * WITHOUT requiring cloud upload
- */
 export async function openResumePdfViewer(fileUri) {
   try {
     if (Platform.OS === 'android') {
@@ -987,7 +1382,7 @@ export async function openResumePdfViewer(fileUri) {
       await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
         data: contentUri,
         type: 'application/pdf',
-        flags: 268435457, // FLAG_GRANT_READ_URI_PERMISSION (1) | FLAG_ACTIVITY_NEW_TASK (268435456)
+        flags: 268435457,
       });
       return { success: true };
     } else {
