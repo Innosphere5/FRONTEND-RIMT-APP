@@ -430,6 +430,25 @@ export default function HomeScreen({ onNavigate }) {
                 onPress={() => Alert.alert('Internships', '2 institutional internships verified by department.')}
               />
             </View>
+            <View style={[styles.actionRow, { marginTop: Spacing.spaceSm }]}>
+              <ActionTile
+                icon="fact-check"
+                iconColor={Colors.primary}
+                iconBgColor="rgba(163, 19, 33, 0.1)"
+                title="ATS Auditor"
+                subtitle="Forensic diagnostic"
+                onPress={() => onNavigate?.('resume-detector')}
+              />
+              <View style={{ width: Spacing.spaceSm }} />
+              <ActionTile
+                icon="verified"
+                iconColor="#2e7d4f"
+                iconBgColor="rgba(46, 125, 79, 0.1)"
+                title="Placement Hub"
+                subtitle="Campus drives"
+                onPress={() => onNavigate?.('placement')}
+              />
+            </View>
           </View>
         </View>
 
