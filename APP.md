@@ -1,9 +1,9 @@
 # 📱 APP.md — RIMT Student Application Master Memory
 
 > **Single Source of Truth:** Complete architecture, screens, services, and file map for the RIMT University Student App.  
-> **Last Updated:** 2026-10-07  
+> **Last Updated:** 2026-10-13  
 > **Role:** Senior Full-Stack & System Logic Engineer Specification  
-> **Status:** Active; bio, headline & profession cross-compatibility live, paired admin portal session-switching & multi-account isolation verified, live placement stats badge system integrated, Cloudinary signed uploads operational  
+> **Status:** Active; CVForge true storage download with StorageAccessFramework live, social share chooser eliminated, profile photo modal with cancel button operational, paired admin portal verified  
 
 ---
 
@@ -415,6 +415,27 @@ EXPO_PUBLIC_CLOUDINARY_SIGNING_URL=http://<LAN_IP>:3000/api/cloudinary/sign
 ---
 
 ## 10. Changelog
+- **2026-10-13 (Direct Storage Download via StorageAccessFramework, Elimination of Social Share Chooser & Functional Profile Photo Dialog with Cancel Button):**
+  1. **Direct Native Storage Download via StorageAccessFramework (`resumeService.js`):**
+     - **Root Cause of "Share 1 file" chooser:** Previously, `downloadResumeToDevice` invoked `Sharing.shareAsync()`, which fires Android OS `ACTION_SEND` intent. This caused Android to pop up the system "Share 1 file" sheet (WhatsApp, Quick Share, Claude, Teams, Gmail) instead of downloading the file.
+     - **True Device Storage Download:** Refactored `downloadResumeToDevice` to use `FileSystem.StorageAccessFramework` on Android. Writes the PDF directly into device storage (`Downloads` or selected folder) with **zero social share sheet interruptions**.
+     - **1-Tap Direct Saves:** Persists the granted directory URI in `@rimt_cvforge_download_dir_uri` via `AsyncStorage`, enabling subsequent downloads to save immediately to the student's Downloads folder without prompting again.
+     - **Download Complete Feedback:** Displays a clean confirmation alert with an immediate `[Open PDF]` action to view the freshly downloaded resume in the in-app RIMT PDF viewer.
+  2. **Decoupled Direct Download from Export Modal (`ResumeScreen.jsx`):**
+     - Fixed `handleDownloadPdfToDevice` which previously called `setExportSuccessModal`, causing the "Vector PDF Generated!" modal to pop up behind the share sheet.
+     - Clicking **"Download Your Resume"** on the floating bottom CTA now directly compiles and saves the file into device storage without popping up unwanted background modals.
+     - Preserved `exportSuccessModal` exclusively for explicit export flows (top-right header or Review tab `[Export PDF]` button).
+  3. **"Customize Profile Picture" Dialog with Functional Cancel Button (`ResumeScreen.jsx`):**
+     - **Root Cause of missing Cancel button:** React Native's `Alert.alert` on Android is constrained by Android OS's native 3-button limit (`BUTTON_POSITIVE`, `BUTTON_NEGATIVE`, `BUTTON_NEUTRAL`). Because 4 options were passed (`Choose from Gallery`, `Take Photo with Camera`, `Enter Image URL`, `Cancel`), Android dropped the 4th item (`Cancel`).
+     - **Native Modal Migration:** Replaced `Alert.alert` with a dedicated, responsive React Native `Modal` (`avatarPickerVisible`).
+     - Displays all 4 options reliably on both Android and iOS:
+       - `🌐 ENTER IMAGE URL`
+       - `📸 TAKE PHOTO WITH CAMERA`
+       - `🖼️ CHOOSE FROM GALLERY`
+       - `CANCEL` (prominently styled, immediately closes dialog, with backdrop tap and hardware back button dismissal).
+  4. **Floating CTA Button Label Harmonization (`ResumeScreen.jsx`):**
+     - Replaced `"Export Vector PDF"` with **`"Download Your Resume"`** with `file-download` icon and dynamic activity spinner during compilation.
+
 - **2026-10-10 (CVForge Institutional Resume Builder, Direct Intent PDF Viewing & Zero-Overflow Layout):**
   1. **CVForge Institutional Resume Builder (`ResumeScreen.jsx` & `resumeService.js`):** Engineered complete in-app resume suite featuring:
      - 4 Verified Institutional ATS Templates: `navy_ledger` (Navy Executive Standard), `richard_sanchez` (Slate Split Modern), `herman_walton` (Corporate Analyst Classic), `sunny_singh` (Crimson Recruiter Horizon).

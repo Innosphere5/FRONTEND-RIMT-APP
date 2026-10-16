@@ -1212,10 +1212,13 @@ export async function exportResumeToPdf(resumeData, templateId) {
   }
 }
 
+const RESUME_DOWNLOAD_DIR_KEY = '@rimt_cvforge_download_dir_uri';
+
 /**
  * Download high-quality vector resume PDF directly to device storage.
- * On Android: Uses StorageAccessFramework to save to Downloads/Documents or native save dialog.
- * On iOS: Opens native Files save sheet.
+ * On Android: Uses StorageAccessFramework to write directly into device storage (Downloads/Documents),
+ *             NEVER popping up the social 'Share file' sheet. Remembers user's folder for instant 1-tap saves.
+ * On iOS: Uses native Files save sheet.
  * On Web: Triggers immediate browser file download.
  */
 export async function downloadResumeToDevice(fileUri, scholarName = 'Scholar', base64Data = null) {
@@ -1223,7 +1226,7 @@ export async function downloadResumeToDevice(fileUri, scholarName = 'Scholar', b
     const cleanName = (scholarName || 'Scholar').replace(/[^a-zA-Z0-9_-]/g, '_');
     const fileName = `CVForge_Resume_${cleanName}.pdf`;
 
-    // 1. Web Platform (Browser download)
+    // 1. Web Platform (Direct browser file download)
     if (Platform.OS === 'web') {
       let url = fileUri;
       if (base64Data) {
@@ -1238,48 +1241,120 @@ export async function downloadResumeToDevice(fileUri, scholarName = 'Scholar', b
       return { success: true, method: 'web-download', fileName };
     }
 
-    // 2. Local File Preparation on Device
+    // 2. Prepare local Base64 data and file cache
+    let base64Content = base64Data;
     const targetDir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
     const localFilePath = `${targetDir}${fileName}`;
 
-    if (base64Data) {
+    if (!base64Content && fileUri) {
       try {
-        await FileSystem.writeAsStringAsync(localFilePath, base64Data, {
+        base64Content = await FileSystem.readAsStringAsync(fileUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+      } catch (readErr) {
+        console.warn('Could not read base64 from fileUri:', readErr);
+      }
+    }
+
+    if (base64Content) {
+      try {
+        await FileSystem.writeAsStringAsync(localFilePath, base64Content, {
           encoding: FileSystem.EncodingType.Base64,
         });
       } catch (writeErr) {
-        console.warn('Could not write base64 to localFilePath:', writeErr);
+        console.warn('Could not cache file locally:', writeErr);
       }
     } else if (fileUri && fileUri !== localFilePath) {
       try {
         await FileSystem.copyAsync({ from: fileUri, to: localFilePath });
+        base64Content = await FileSystem.readAsStringAsync(localFilePath, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
       } catch (copyErr) {
         console.warn('Could not copy fileUri to localFilePath:', copyErr);
       }
     }
 
-    let shareUri = fileUri || localFilePath;
-    try {
-      const fileInfo = await FileSystem.getInfoAsync(localFilePath);
-      if (fileInfo && fileInfo.exists) {
-        shareUri = localFilePath;
-      }
-    } catch (_) {}
+    // 3. Android: Save DIRECTLY to Device Storage (Downloads/Selected Folder) via SAF
+    // Explicitly avoids triggering the social "Share 1 file" chooser sheet.
+    if (Platform.OS === 'android' && FileSystem.StorageAccessFramework) {
+      try {
+        let directoryUri = null;
+        try {
+          directoryUri = await AsyncStorage.getItem(RESUME_DOWNLOAD_DIR_KEY);
+        } catch (_) {}
 
-    // 3. Trigger native save/share sheet (Android & iOS)
-    // This allows user to save to Downloads, Drive, Files or any app instantly
-    // with 100% reliability and zero blocking or permission freezing.
-    const isAvailable = await Sharing.isAvailableAsync();
-    if (isAvailable && shareUri) {
-      await Sharing.shareAsync(shareUri, {
-        mimeType: 'application/pdf',
-        dialogTitle: `Save ${fileName} to Device`,
-        UTI: 'com.adobe.pdf',
-      });
-      return { success: true, method: 'share-save', fileName, savedUri: shareUri };
+        let safFileUri = null;
+        // Attempt instant 1-tap save to previously granted directory
+        if (directoryUri && base64Content) {
+          try {
+            safFileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+              directoryUri,
+              fileName,
+              'application/pdf'
+            );
+            await FileSystem.writeAsStringAsync(safFileUri, base64Content, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            return {
+              success: true,
+              method: 'saf-direct',
+              fileName,
+              savedUri: safFileUri,
+              directoryUri,
+            };
+          } catch (cachedErr) {
+            console.log('Cached SAF directory invalid or revoked, requesting folder selection:', cachedErr?.message);
+            directoryUri = null;
+          }
+        }
+
+        // Open native Android folder picker so user can pick "Downloads" or desired destination
+        const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+        if (!permissions.granted) {
+          return { success: false, cancelled: true, fileName };
+        }
+
+        directoryUri = permissions.directoryUri;
+        try {
+          await AsyncStorage.setItem(RESUME_DOWNLOAD_DIR_KEY, directoryUri);
+        } catch (_) {}
+
+        safFileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+          directoryUri,
+          fileName,
+          'application/pdf'
+        );
+        await FileSystem.writeAsStringAsync(safFileUri, base64Content || '', {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        return {
+          success: true,
+          method: 'saf-new',
+          fileName,
+          savedUri: safFileUri,
+          directoryUri,
+        };
+      } catch (safErr) {
+        console.warn('SAF error during direct save:', safErr);
+      }
     }
 
-    return { success: true, fileName, savedUri: shareUri };
+    // 4. iOS Platform: Native Save to Files sheet
+    if (Platform.OS === 'ios') {
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable && localFilePath) {
+        await Sharing.shareAsync(localFilePath, {
+          mimeType: 'application/pdf',
+          dialogTitle: `Save ${fileName} to Files`,
+          UTI: 'com.adobe.pdf',
+        });
+        return { success: true, method: 'ios-save', fileName, savedUri: localFilePath };
+      }
+    }
+
+    return { success: true, fileName, savedUri: localFilePath };
   } catch (err) {
     console.error('downloadResumeToDevice error:', err);
     return { success: false, error: err.message || 'Could not download file.' };

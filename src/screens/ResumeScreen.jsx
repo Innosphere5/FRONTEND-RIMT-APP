@@ -66,6 +66,7 @@ export default function ResumeScreen({ onBack }) {
   const [aiSuggestions, setAiSuggestions] = useState(AI_SUGGESTIONS);
   const [appliedCount, setAppliedCount] = useState(0);
   const [exportSuccessModal, setExportSuccessModal] = useState(null);
+  const [cachedExportPdf, setCachedExportPdf] = useState(null);
 
   // In-App Google Drive PDF Viewer State
   const [driveViewerVisible, setDriveViewerVisible] = useState(false);
@@ -78,6 +79,7 @@ export default function ResumeScreen({ onBack }) {
   const [quickEditSection, setQuickEditSection] = useState(null);
   const [urlModalVisible, setUrlModalVisible] = useState(false);
   const [tempUrlInput, setTempUrlInput] = useState('');
+  const [avatarPickerVisible, setAvatarPickerVisible] = useState(false);
 
   // New item inputs in Editor
   const [newSkillName, setNewSkillName] = useState('');
@@ -117,6 +119,7 @@ export default function ResumeScreen({ onBack }) {
 
   // Auto-Save whenever resumeData or template changes
   const handleUpdateResumeData = (updater) => {
+    setCachedExportPdf(null);
     setResumeData((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : { ...prev, ...updater };
       saveResumeData(rollNo, next);
@@ -125,6 +128,7 @@ export default function ResumeScreen({ onBack }) {
   };
 
   const handleSelectTemplate = (templateId) => {
+    setCachedExportPdf(null);
     setActiveTemplateId(templateId);
     handleUpdateResumeData((prev) => ({ ...prev, templateId }));
   };
@@ -172,62 +176,57 @@ export default function ResumeScreen({ onBack }) {
     }
   };
 
-  // Image Selection (Gallery, Camera, or URL)
+  // Open Customize Profile Picture Modal
   const handlePickAvatarImage = () => {
-    Alert.alert(
-      '📷 Customize Profile Picture',
-      'Select how you would like to set your resume image. The photo will automatically upload to Cloudinary and fit neatly on your resume canvas.',
-      [
-        {
-          text: '🖼️ Choose from Gallery',
-          onPress: async () => {
-            try {
-              const result = await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: ['images'],
-                allowsEditing: true,
-                aspect: [1, 1],
-                quality: 0.9,
-              });
-              if (!result.canceled && result.assets && result.assets.length > 0) {
-                await processAndUploadAvatar(result.assets[0].uri);
-              }
-            } catch (err) {
-              Alert.alert('Image Picker Error', err.message || 'Could not pick image.');
-            }
-          },
-        },
-        {
-          text: '📸 Take Photo with Camera',
-          onPress: async () => {
-            try {
-              const perm = await ImagePicker.requestCameraPermissionsAsync();
-              if (!perm.granted) {
-                Alert.alert('Permission Required', 'Camera permission is needed to take a portrait photo.');
-                return;
-              }
-              const result = await ImagePicker.launchCameraAsync({
-                allowsEditing: true,
-                aspect: [1, 1],
-                quality: 0.9,
-              });
-              if (!result.canceled && result.assets && result.assets.length > 0) {
-                await processAndUploadAvatar(result.assets[0].uri);
-              }
-            } catch (err) {
-              Alert.alert('Camera Error', err.message || 'Could not take photo.');
-            }
-          },
-        },
-        {
-          text: '🌐 Enter Image URL',
-          onPress: () => {
-            setTempUrlInput(resumeData?.personal?.avatarUrl || '');
-            setUrlModalVisible(true);
-          },
-        },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
+    setAvatarPickerVisible(true);
+  };
+
+  const handlePickFromGallery = async () => {
+    setAvatarPickerVisible(false);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.9,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        await processAndUploadAvatar(result.assets[0].uri);
+      }
+    } catch (err) {
+      Alert.alert('Image Picker Error', err.message || 'Could not pick image.');
+    }
+  };
+
+  const handleTakePhotoWithCamera = async () => {
+    setAvatarPickerVisible(false);
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('Permission Required', 'Camera permission is needed to take a portrait photo.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.9,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        await processAndUploadAvatar(result.assets[0].uri);
+      }
+    } catch (err) {
+      Alert.alert('Camera Error', err.message || 'Could not take photo.');
+    }
+  };
+
+  const handleEnterImageUrl = () => {
+    setAvatarPickerVisible(false);
+    setTempUrlInput(resumeData?.personal?.avatarUrl || '');
+    setUrlModalVisible(true);
+  };
+
+  const handleCancelAvatarPick = () => {
+    setAvatarPickerVisible(false);
   };
 
   const handleSaveUrlImage = () => {
@@ -313,43 +312,63 @@ export default function ResumeScreen({ onBack }) {
     );
   };
 
-  // Export PDF Handler
+  // Export PDF Handler (Explicit export modal)
   const handleExportPdf = async () => {
     if (!resumeData) return;
     setIsExporting(true);
     try {
-      const result = await exportResumeToPdf(resumeData, activeTemplateId);
-      setIsExporting(false);
-      if (result.success) {
-        setExportSuccessModal({
-          uri: result.uri,
-          base64: result.base64,
-          fileName: result.fileName,
-          pages: result.numberOfPages || 1,
-        });
-      } else {
-        Alert.alert('Export Notice', result.error || 'Could not export PDF.');
+      let fileUri = cachedExportPdf?.uri;
+      let base64 = cachedExportPdf?.base64;
+      let fileName = cachedExportPdf?.fileName;
+      let pages = cachedExportPdf?.pages;
+
+      if (!fileUri) {
+        const result = await exportResumeToPdf(resumeData, activeTemplateId);
+        if (result.success) {
+          fileUri = result.uri;
+          base64 = result.base64;
+          fileName = result.fileName;
+          pages = result.numberOfPages || 1;
+          setCachedExportPdf({
+            uri: fileUri,
+            base64,
+            fileName,
+            pages,
+          });
+        } else {
+          setIsExporting(false);
+          Alert.alert('Export Notice', result.error || 'Could not export PDF.');
+          return;
+        }
       }
+
+      setIsExporting(false);
+      setExportSuccessModal({
+        uri: fileUri,
+        base64,
+        fileName,
+        pages,
+      });
     } catch (err) {
       setIsExporting(false);
       Alert.alert('Error', err.message || 'Export error');
     }
   };
 
-  // Direct High-Quality Download to Device Storage
+  // Direct High-Quality Download to Device Storage (Direct Save to Downloads)
   const handleDownloadPdfToDevice = async () => {
     if (!resumeData) return;
     setIsDownloading(true);
     try {
-      let fileUri = exportSuccessModal?.uri;
-      let base64 = exportSuccessModal?.base64;
+      let fileUri = cachedExportPdf?.uri || exportSuccessModal?.uri;
+      let base64 = cachedExportPdf?.base64 || exportSuccessModal?.base64;
 
       if (!fileUri) {
         const res = await exportResumeToPdf(resumeData, activeTemplateId);
         if (res.success) {
           fileUri = res.uri;
           base64 = res.base64;
-          setExportSuccessModal({
+          setCachedExportPdf({
             uri: res.uri,
             base64: res.base64,
             fileName: res.fileName,
@@ -365,10 +384,17 @@ export default function ResumeScreen({ onBack }) {
       const dlResult = await downloadResumeToDevice(fileUri, scholarName, base64);
       if (dlResult.success) {
         Alert.alert(
-          '📥 Resume Saved',
-          `Successfully prepared "${dlResult.fileName || 'CVForge_Resume.pdf'}". You can save it to your device Downloads, Files, or Google Drive.`
+          '📥 Download Complete',
+          `"${dlResult.fileName || 'CVForge_Resume.pdf'}" has been successfully downloaded to your device storage.`,
+          [
+            {
+              text: 'Open PDF',
+              onPress: () => openDriveViewerWithResume(fileUri),
+            },
+            { text: 'OK', style: 'cancel' },
+          ]
         );
-      } else {
+      } else if (!dlResult.cancelled) {
         Alert.alert('Download Notice', dlResult.error || 'Could not save file to device.');
       }
     } catch (err) {
@@ -1467,7 +1493,7 @@ export default function ResumeScreen({ onBack }) {
 
             {/* Bottom Floating CTA Button */}
             <View style={styles.floatingBottomCta}>
-              <ZoomCard scaleTo={1.03} onPress={handleExportPdf} disabled={isExporting}>
+              <ZoomCard scaleTo={1.03} onPress={handleDownloadPdfToDevice} disabled={isDownloading || isExporting}>
                 <LinearGradient
                   colors={[Colors.primary, '#850012']}
                   start={{ x: 0, y: 0 }}
@@ -1477,14 +1503,14 @@ export default function ResumeScreen({ onBack }) {
                   <ShineEffect />
                   <View style={styles.btnContentRow}>
                     <View style={styles.btnIconBadge}>
-                      {isExporting ? (
+                      {isDownloading || isExporting ? (
                         <ActivityIndicator size="small" color="#ffffff" />
                       ) : (
-                        <MaterialIcons name="picture-as-pdf" size={18} color="#ffffff" />
+                        <MaterialIcons name="file-download" size={18} color="#ffffff" />
                       )}
                     </View>
                     <View style={styles.btnTextStack}>
-                      <Text style={styles.glossyBtnTitle}>Export Vector PDF</Text>
+                      <Text style={styles.glossyBtnTitle}>Download Your Resume</Text>
                       <Text style={styles.glossyBtnSubtitle} numberOfLines={1}>{selectedTemplate.name} · Verified ATS</Text>
                     </View>
                     <View style={styles.btnKpiPill}>
@@ -3251,6 +3277,65 @@ export default function ResumeScreen({ onBack }) {
         </View>
       </Modal>
 
+      {/* CUSTOMIZE PROFILE PICTURE MODAL (With Fully Functional Cancel Button) */}
+      <Modal
+        visible={avatarPickerVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleCancelAvatarPick}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={handleCancelAvatarPick}
+        >
+          <TouchableOpacity
+            style={styles.avatarDialogCard}
+            activeOpacity={1}
+            onPress={(e) => e?.stopPropagation && e.stopPropagation()}
+          >
+            <Text style={styles.avatarDialogTitle}>📷 Customize Profile Picture</Text>
+            <Text style={styles.avatarDialogMessage}>
+              Select how you would like to set your resume image. The photo will automatically upload to Cloudinary and fit neatly on your resume canvas.
+            </Text>
+
+            <View style={styles.avatarDialogActionStack}>
+              <TouchableOpacity
+                style={styles.avatarDialogActionBtn}
+                onPress={handleEnterImageUrl}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.avatarDialogActionText}>🌐 ENTER IMAGE URL</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.avatarDialogActionBtn}
+                onPress={handleTakePhotoWithCamera}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.avatarDialogActionText}>📸 TAKE PHOTO WITH CAMERA</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.avatarDialogActionBtn}
+                onPress={handlePickFromGallery}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.avatarDialogActionText}>🖼️ CHOOSE FROM GALLERY</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.avatarDialogCancelBtn}
+                onPress={handleCancelAvatarPick}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.avatarDialogCancelText}>CANCEL</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* URL INPUT MODAL */}
       <Modal
         visible={urlModalVisible}
@@ -4222,6 +4307,66 @@ const styles = StyleSheet.create({
   modalSecondaryBtnText: { color: ArchivalColors.ink, fontSize: 13, fontWeight: '600' },
   modalDismissBtn: { paddingVertical: 6, alignItems: 'center' },
   modalDismissBtnText: { fontSize: 12, fontWeight: '600', color: ArchivalColors.mutedInk },
+
+  // CUSTOMIZE PROFILE PICTURE DIALOG STYLES
+  avatarDialogCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    paddingTop: 22,
+    paddingBottom: 16,
+    paddingHorizontal: 22,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  avatarDialogTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: ArchivalColors.ink,
+    marginBottom: 8,
+    textAlign: 'left',
+  },
+  avatarDialogMessage: {
+    fontSize: 13,
+    color: '#4B5563',
+    lineHeight: 18.5,
+    marginBottom: 16,
+    textAlign: 'left',
+  },
+  avatarDialogActionStack: {
+    width: '100%',
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  avatarDialogActionBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    alignItems: 'flex-end',
+  },
+  avatarDialogActionText: {
+    color: '#0284C7',
+    fontSize: 13.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  avatarDialogCancelBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    marginTop: 4,
+    alignItems: 'flex-end',
+  },
+  avatarDialogCancelText: {
+    color: '#DC2626',
+    fontSize: 13.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
 
   // REVIEW TAB STYLES
   reviewHeaderBanner: {
