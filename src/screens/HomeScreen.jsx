@@ -20,11 +20,13 @@ import DocumentCard from '../components/DocumentCard';
 import ShineEffect from '../components/ShineEffect';
 import ZoomCard from '../components/ZoomCard';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationContext';
 import { listStudentDocuments, toDocumentCardProps } from '../services/documentService';
 import { supabase } from '../services/supabase';
 
 export default function HomeScreen({ onNavigate }) {
   const { currentStudent, refreshProfile } = useAuth();
+  const { unreadCount } = useNotifications();
   const [searchQuery, setSearchQuery] = useState('');
   const [activityCleared, setActivityCleared] = useState(false);
   const [documents, setDocuments] = useState([]);
@@ -204,7 +206,8 @@ export default function HomeScreen({ onNavigate }) {
         title="Overview"
         eyebrow="RIMT ACADEMIC TRUST"
         avatarUrl={currentStudent?.avatar_url || ImageAssets.defaultAvatar}
-        onNotificationPress={() => Alert.alert('Notifications', 'You have 1 new announcement from the Registrar.')}
+        unreadCount={unreadCount}
+        onNotificationPress={() => onNavigate?.('notifications')}
         onProfilePress={() => onNavigate?.('profile')}
       />
 
